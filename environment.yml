@@ -14,6 +14,7 @@ dependencies:
 - pytorch=0.4.1
 - torchvision
 - matplotlib
+- imageio
 - pip:
   - colour-demosaicing
   - transforms3d
