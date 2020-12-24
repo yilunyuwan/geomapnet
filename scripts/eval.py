@@ -200,8 +200,8 @@ q_loss = np.asarray([q_criterion(p, t) for p, t in zip(pred_poses[:, 3:],
 #q_loss = eval_func(q_loss)
 #print '{:s} error in translation = {:3.2f} m\n' \
 #      '{:s} error in rotation    = {:3.2f} degrees'.format(eval_str, t_loss,
-print 'Error in translation: median {:3.2f} m,  mean {:3.2f} m\n' \
-    'Error in rotation: median {:3.2f} degrees, mean {:3.2f} degree'.format(np.median(t_loss), np.mean(t_loss),
+print 'Error in translation: median {:4.3f} m,  mean {:4.3f} m\n' \
+    'Error in rotation: median {:4.3f} degrees, mean {:4.3f} degree'.format(np.median(t_loss), np.mean(t_loss),
                     np.median(q_loss), np.mean(q_loss))
 
 
