@@ -135,6 +135,9 @@ class SevenScenes(data.Dataset):
           d_img = None
           while (c_img is None) or (d_img is None):
             c_img = load_image(self.c_imgs[index])
+            # load_image use pil_loader which convert d_image into RGB (3 channels, 8 bits per channel), while d_img is 16 bits png image which should be convert into I (32 bits, 1 channel)
+            # from PIL import Image
+            # d_img = Image.open(self.d_imgs[index]).convert('I')
             d_img = load_image(self.d_imgs[index])
             pose = self.poses[index]
             index += 1
@@ -174,8 +177,8 @@ def main():
     transforms.Scale(256),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-      std=[0.229, 0.224, 0.225])
+    # transforms.Normalize(mean=[0.485, 0.456, 0.406],
+    #   std=[0.229, 0.224, 0.225])
   ])
   dset = SevenScenes(seq, '../data/deepslam_data/7Scenes', True, transform,
     mode=mode)

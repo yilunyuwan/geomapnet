@@ -203,7 +203,7 @@ class Trainer(object):
        'criterion_state_dict': self.train_criterion.state_dict()}
     torch.save(checkpoint_dict, filename)
 
-  def train_val(self, lstm):
+  def train_val(self, lstm, geopose):
     """
     Function that does the training and validation
     :param lstm: whether the model is an LSTM
@@ -278,7 +278,9 @@ class Trainer(object):
         kwargs = dict(target=target, criterion=self.train_criterion,
           optim=self.optimizer, train=True,
           max_grad_norm=self.config['max_grad_norm'])
-        if lstm:
+        if geopose:
+          loss, _ = step_geopose(data, self.model, self.config['cuda'], **kwargs)
+        elif lstm:
           loss, _ = step_lstm(data, self.model, self.config['cuda'], **kwargs)
         else:
           loss, _ = step_feedfwd(data, self.model, self.config['cuda'],
@@ -318,6 +320,52 @@ class Trainer(object):
     print 'Epoch {:d} checkpoint saved'.format(epoch)
     if self.config['log_visdom']:
       self.vis.save(envs=[self.vis_env])
+
+"""
+modified from step_feedfwd
+"""
+def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
+    train=True, max_grad_norm=0.0):
+  """
+  training/validation step for a feedforward NN
+  :param data: 
+  :param target: 
+  :param model: 
+  :param criterion: 
+  :param optim: 
+  :param cuda: whether CUDA is to be used
+  :param train: training / val stage
+  :param max_grad_norm: if > 0, clips the gradient norm
+  :return: 
+  """
+  if train:
+    assert criterion is not None
+
+  data_var = Variable(data, requires_grad=train)
+  if cuda:
+    data_var = data_var.cuda(async=True)
+  with torch.set_grad_enabled(train):
+    output = model(data_var)
+
+  if criterion is not None:
+    if cuda:
+      target = target.cuda(async=True)
+
+    target_var = Variable(target, requires_grad=False)
+    with torch.set_grad_enabled(train):
+      loss = criterion(output, target_var, data_var)
+
+    if train:
+      # SGD step
+      optim.learner.zero_grad()
+      loss.backward()
+      if max_grad_norm > 0.0:
+        torch.nn.utils.clip_grad_norm(model.parameters(), max_grad_norm)
+      optim.learner.step()
+
+    return loss.item(), output
+  else:
+    return 0, output
 
 def step_feedfwd(data, model, cuda, target=None, criterion=None, optim=None,
     train=True, max_grad_norm=0.0):
