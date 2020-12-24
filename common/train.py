@@ -203,7 +203,7 @@ class Trainer(object):
        'criterion_state_dict': self.train_criterion.state_dict()}
     torch.save(checkpoint_dict, filename)
 
-  def train_val(self, lstm, geopose):
+  def train_val(self, lstm, geopose=False):
     """
     Function that does the training and validation
     :param lstm: whether the model is an LSTM
