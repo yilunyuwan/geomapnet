@@ -20,7 +20,7 @@ class MF(data.Dataset):
   Returns multiple consecutive frames, and optionally VOs
   """
   def __init__(self, dataset, include_vos=False, no_duplicates=False,
-               *args, **kwargs):
+               mode=0, *args, **kwargs):
     """
     :param steps: Number of frames to return on every call
     :param skip: Number of frames to skip
@@ -39,10 +39,11 @@ class MF(data.Dataset):
     self.train = kwargs['train']
     self.vo_func = kwargs.pop('vo_func', calc_vos_simple)
     self.no_duplicates = no_duplicates
+    self.mode = mode
 
     if dataset == '7Scenes':
       from seven_scenes import SevenScenes
-      self.dset = SevenScenes(*args, real=self.real, **kwargs)
+      self.dset = SevenScenes(*args, real=self.real, mode=self.mode, **kwargs)
       if self.include_vos and self.real:
         self.gt_dset = SevenScenes(*args, skip_images=True, real=False,
           **kwargs)
@@ -76,7 +77,7 @@ class MF(data.Dataset):
   def __getitem__(self, index):
     """
     :param index: 
-    :return: imgs: STEPS x 3 x H x W
+    :return: imgs: STEPS x C x H x W (C = 4 if self.mode = 2 else 3)
              poses: STEPS x 7
              vos: (STEPS-1) x 7 (only if include_vos = True)
     """

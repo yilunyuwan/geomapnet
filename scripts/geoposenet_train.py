@@ -139,13 +139,10 @@ kwargs = dict(scene=args.scene, data_path=data_dir, transform=data_transform,
   target_transform=target_transform, seed=seed)
 if args.model == 'geoposenet':
   if args.dataset == '7Scenes':
-    from dataset_loaders.seven_scenes import SevenScenes
-    train_set = SevenScenes(train=True, mode=2, **kwargs)
-    val_set = SevenScenes(train=False, mode=2, **kwargs)
-  # elif args.dataset == 'RobotCar':
-  #   from dataset_loaders.robotcar import RobotCar
-  #   train_set = RobotCar(train=True, **kwargs)
-  #   val_set = RobotCar(train=False, **kwargs)
+    kwargs = dict(kwargs, dataset=args.dataset, skip=skip, steps=steps,
+    variable_skip=variable_skip)
+    train_set = MF(train=True, real=real, mode=2, **kwargs)
+    val_set = MF(train=False, real=real, mode=2, **kwargs)
   else:
     raise NotImplementedError
 elif args.model == 'posenet':

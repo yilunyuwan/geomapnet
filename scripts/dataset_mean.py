@@ -11,7 +11,7 @@ import numpy as np
 import argparse
 import set_paths
 from dataset_loaders.seven_scenes import SevenScenes
-from dataset_loaders.robotcar import RobotCar
+# from dataset_loaders.robotcar import RobotCar
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from common.train import safe_collate
@@ -28,7 +28,7 @@ crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
 
 data_transform = transforms.Compose([
   transforms.Resize(256),
-  transforms.RandomCrop(crop_size),
+  # transforms.RandomCrop(crop_size),
   transforms.ToTensor()])
 
 # dataset loader
@@ -47,8 +47,10 @@ batch_size = 8
 num_workers = batch_size
 loader = DataLoader(dset, batch_size=batch_size, num_workers=num_workers,
                     collate_fn=safe_collate)
-acc = np.zeros((3, crop_size[0], crop_size[1]))
-sq_acc = np.zeros((3, crop_size[0], crop_size[1]))
+# acc = np.zeros((3, crop_size[0], crop_size[1]))
+# sq_acc = np.zeros((3, crop_size[0], crop_size[1]))
+acc = np.zeros((3, 256, 341))
+sq_acc = np.zeros((3, 256, 341))
 for batch_idx, (imgs, _) in enumerate(loader):
   imgs = imgs.numpy()
   acc += np.sum(imgs, axis=0)
