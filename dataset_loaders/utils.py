@@ -4,6 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
  
 from torchvision.datasets.folder import default_loader
+from PIL import Image
 
 def load_image(filename, loader=default_loader):
   try:
@@ -15,4 +16,8 @@ def load_image(filename, loader=default_loader):
     print 'Could not load image {:s}, unexpected error'.format(filename)
     return None
 
+  return img
+
+def load_depth(filename):
+  img = Image.open(filename).convert('I;16')
   return img

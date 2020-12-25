@@ -18,6 +18,9 @@ import transforms3d.euler as txe
 #from IPython.core.debugger import set_trace
 
 ## PYTORCH
+def photometric_reconstruction():
+  return 
+  
 def vdot(v1, v2):
   """
   Dot product along the dim=1

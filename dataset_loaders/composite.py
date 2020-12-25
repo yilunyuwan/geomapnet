@@ -84,7 +84,7 @@ class MF(data.Dataset):
     idx = self.get_indices(index)
     clip  = [self.dset[i] for i in idx]
 
-    imgs  = torch.stack([c[0] for c in clip], dim=0)
+    imgs  = {'color': torch.stack([c[0]['color'] for c in clip], dim=0), 'depth': torch.stack([c[0]['depth'] for c in clip])}
     poses = torch.stack([c[1] for c in clip], dim=0)
     if self.include_vos:
       # vos = calc_vos_simple(poses.unsqueeze(0))[0] if self.train else \
@@ -158,3 +158,64 @@ class OnlyPoses(data.Dataset):
 
   def __len__(self):
     return len(self.real_dset)
+
+
+def main():
+  """
+  visualizes the dataset
+  """
+  from common.vis_utils import show_batch, show_stereo_batch
+  from torchvision.utils import make_grid
+  import torchvision.transforms as transforms
+
+  dataset = '7Scenes'
+  data_path = '../data/deepslam_data/7Scenes'
+  seq = 'heads'
+  steps = 3
+  skip = 1
+  mode = 2
+  num_workers = 6
+  transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.CenterCrop(224),
+    transforms.ToTensor(),
+
+  ])
+  target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
+  kwargs = dict(scene=seq, data_path=data_path, transform=transform,
+                steps=steps, skip=skip)
+
+  dset = MF(dataset=dataset, train=True, target_transform=target_transform,
+            depth_transform=transform, mode=mode, **kwargs)
+  print 'Loaded 7Scenes sequence {:s}, length = {:d}'.format(seq,
+    len(dset))
+  
+  data_loader = data.DataLoader(dset, batch_size=10, shuffle=True,
+    num_workers=num_workers)
+
+  batch_count = 0
+  N = 2
+  for batch in data_loader:
+    # imgs: {'color': B x steps x 3 x H x W, 'depth': B x steps x 1 x H x W}
+    (imgs, poses) = batch
+
+    print 'Minibatch {:d}'.format(batch_count)
+    print imgs['color'].shape
+    print imgs['depth'].shape
+
+    if mode == 0:
+      show_batch(make_grid(imgs['color'][:, 1, ...], nrow=1, padding=25, normalize=True))
+    elif mode == 1:
+      show_batch(make_grid(imgs['depth'][:, 1, ...], nrow=1, padding=25, normalize=True))
+    elif mode == 2:
+      lb = make_grid(imgs['color'], nrow=1, padding=25, normalize=True)
+      rb = make_grid(imgs['depth'], nrow=1, padding=25, normalize=True)
+
+      show_stereo_batch(lb, rb)
+
+    batch_count += 1
+    if batch_count >= N:
+      break
+
+if __name__ == '__main__':
+  main()

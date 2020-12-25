@@ -10,7 +10,7 @@ import os
 import os.path as osp
 import numpy as np
 from torch.utils import data
-from utils import load_image
+from utils import load_image, load_depth
 import sys
 import pickle
 
@@ -18,16 +18,16 @@ sys.path.insert(0, '../')
 from common.pose_utils import process_poses
 
 class SevenScenes(data.Dataset):
-    def __init__(self, scene, data_path, train, transform=None,
-                 target_transform=None, mode=0, seed=7, real=False,
-                 skip_images=False, vo_lib='orbslam'):
+    def __init__(self, scene, data_path, train, 
+    transform=None, depth_transform=None, target_transform=None, mode=0, seed=7, real=False,skip_images=False, vo_lib='orbslam'):
       """
       :param scene: scene name ['chess', 'pumpkin', ...]
       :param data_path: root 7scenes data directory.
       Usually '../data/deepslam_data/7Scenes'
       :param train: if True, return the training images. If False, returns the
       testing images
-      :param transform: transform to apply to the images
+      :param transform: transform to apply to the color images
+      :param depth_transform: depth_transform to apply to the color images
       :param target_transform: transform to apply to the poses
       :param mode: 0: just color image, 1: just depth image, 2: [c_img, d_img]
       :param real: If True, load poses from SLAM/integration of VO
@@ -36,6 +36,7 @@ class SevenScenes(data.Dataset):
       """
       self.mode = mode
       self.transform = transform
+      self.depth_transform = depth_transform
       self.target_transform = target_transform
       self.skip_images = skip_images
       np.random.seed(seed)
@@ -119,14 +120,14 @@ class SevenScenes(data.Dataset):
         if self.mode == 0:
           img = None
           while img is None:
-            img = load_image(self.c_imgs[index])
+            img = {'color': load_image(self.c_imgs[index])}
             pose = self.poses[index]
             index += 1
           index -= 1
         elif self.mode == 1:
           img = None
           while img is None:
-            img = load_image(self.d_imgs[index])
+            img = {'depth': load_depth(self.d_imgs[index])}
             pose = self.poses[index]
             index += 1
           index -= 1
@@ -136,12 +137,11 @@ class SevenScenes(data.Dataset):
           while (c_img is None) or (d_img is None):
             c_img = load_image(self.c_imgs[index])
             # load_image use pil_loader which convert d_image into RGB (3 channels, 8 bits per channel), while d_img is 16 bits png image which should be convert into I (32 bits, 1 channel)
-            # from PIL import Image
-            # d_img = Image.open(self.d_imgs[index]).convert('I')
-            d_img = load_image(self.d_imgs[index])
+            d_img = load_depth(self.d_imgs[index])
+            # d_img = load_image(self.d_imgs[index])
             pose = self.poses[index]
             index += 1
-          img = [c_img, d_img]
+          img = {'color': c_img, 'depth': d_img}
           index -= 1
         else:
           raise Exception('Wrong mode {:d}'.format(self.mode))
@@ -154,9 +154,11 @@ class SevenScenes(data.Dataset):
 
       if self.transform is not None:
         if self.mode == 2:
-          img = [self.transform(i) for i in img]
+          img = {'color': self.transform(img['color']), 'depth': self.depth_transform(img['depth'])}
+        elif self.mode == 1:
+          img = self.depth_transform(img['depth'])
         else:
-          img = self.transform(img)
+          img = self.transform(img['color'])
 
       return img, pose
 
@@ -174,14 +176,14 @@ def main():
   mode = 2
   num_workers = 6
   transform = transforms.Compose([
-    transforms.Scale(256),
-    transforms.CenterCrop(224),
+    transforms.Resize(256),
+    # transforms.CenterCrop(224),
     transforms.ToTensor(),
     # transforms.Normalize(mean=[0.485, 0.456, 0.406],
     #   std=[0.229, 0.224, 0.225])
   ])
   dset = SevenScenes(seq, '../data/deepslam_data/7Scenes', True, transform,
-    mode=mode)
+    depth_transform=transform, mode=mode)
   print 'Loaded 7Scenes sequence {:s}, length = {:d}'.format(seq,
     len(dset))
 
@@ -190,13 +192,15 @@ def main():
 
   batch_count = 0
   N = 2
-  for batch in data_loader:
+  for (imgs, poses) in data_loader:
     print 'Minibatch {:d}'.format(batch_count)
-    if mode < 2:
-      show_batch(make_grid(batch[0], nrow=1, padding=25, normalize=True))
+    if mode == 0:
+      show_batch(make_grid(imgs, nrow=1, padding=25, normalize=True))
+    elif mode == 1:
+      show_batch(make_grid(imgs['depth'], nrow=1, padding=25, normalize=True))
     elif mode == 2:
-      lb = make_grid(batch[0][0], nrow=1, padding=25, normalize=True)
-      rb = make_grid(batch[0][1], nrow=1, padding=25, normalize=True)
+      lb = make_grid(imgs['color'], nrow=1, padding=25, normalize=True)
+      rb = make_grid(imgs['depth'], nrow=1, padding=25, normalize=True)
       show_stereo_batch(lb, rb)
 
     batch_count += 1

@@ -83,7 +83,7 @@ class GeoPoseNetCriterion(nn.Module):
     """
     :param pred: N x T x 6
     :param targ: N x T x 6
-    :param data: N x T x 3
+    :param data: [N x T x 3 x H x W, N x T x H x W] [color map, depth map]
     :return:
     """
 

@@ -131,18 +131,20 @@ if color_jitter > 0:
 tforms.append(transforms.ToTensor())
 tforms.append(transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1])))
 data_transform = transforms.Compose(tforms)
+depth_transform = transforms.Compose([transforms.Resize(256),\
+                                      transforms.ToTensor()])
 target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
 
 # datasets
 data_dir = osp.join('..', 'data', 'deepslam_data', args.dataset)
 kwargs = dict(scene=args.scene, data_path=data_dir, transform=data_transform,
-  target_transform=target_transform, seed=seed)
+              target_transform=target_transform, seed=seed)
 if args.model == 'geoposenet':
   if args.dataset == '7Scenes':
     kwargs = dict(kwargs, dataset=args.dataset, skip=skip, steps=steps,
-    variable_skip=variable_skip)
-    train_set = MF(train=True, real=real, mode=2, **kwargs)
-    val_set = MF(train=False, real=real, mode=2, **kwargs)
+    variable_skip=variable_skip, depth_transform=depth_transform, mode=2)
+    train_set = MF(train=True, real=real, **kwargs)
+    val_set = MF(train=False, real=real, **kwargs)
   else:
     raise NotImplementedError
 elif args.model == 'posenet':
