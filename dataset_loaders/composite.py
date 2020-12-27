@@ -77,14 +77,20 @@ class MF(data.Dataset):
   def __getitem__(self, index):
     """
     :param index: 
-    :return: imgs: STEPS x C x H x W (C = 4 if self.mode = 2 else 3)
+    :return: imgs(if self.mode=2): 
+        {'color': STEPS x 3 x H x W, 'depth': STEPS x 1 x H x W }              
              poses: STEPS x 7
              vos: (STEPS-1) x 7 (only if include_vos = True)
     """
     idx = self.get_indices(index)
     clip  = [self.dset[i] for i in idx]
 
-    imgs  = {'color': torch.stack([c[0]['color'] for c in clip], dim=0), 'depth': torch.stack([c[0]['depth'] for c in clip])}
+    if self.mode == 2:
+      imgs = {'color': torch.stack([c[0]['color'] for c in clip], dim=0), 'depth': torch.stack([c[0]['depth'] for c in clip], dim=0)}
+    elif self.mode == 1:
+      imgs = { 'depth': torch.stack([c[0]['depth'] for c in clip], dim=0)}
+    else:
+      imgs = {'color': torch.stack([c[0]['color'] for c in clip], dim=0)}
     poses = torch.stack([c[1] for c in clip], dim=0)
     if self.include_vos:
       # vos = calc_vos_simple(poses.unsqueeze(0))[0] if self.train else \
@@ -170,9 +176,9 @@ def main():
 
   dataset = '7Scenes'
   data_path = '../data/deepslam_data/7Scenes'
-  seq = 'heads'
+  seq = 'chess'
   steps = 3
-  skip = 1
+  skip = 10
   mode = 2
   num_workers = 6
   transform = transforms.Compose([
@@ -195,21 +201,31 @@ def main():
 
   batch_count = 0
   N = 2
-  for batch in data_loader:
+  for (imgs, poses) in data_loader:
     # imgs: {'color': B x steps x 3 x H x W, 'depth': B x steps x 1 x H x W}
-    (imgs, poses) = batch
 
     print 'Minibatch {:d}'.format(batch_count)
-    print imgs['color'].shape
-    print imgs['depth'].shape
 
     if mode == 0:
-      show_batch(make_grid(imgs['color'][:, 1, ...], nrow=1, padding=25, normalize=True))
+      print imgs['color'].shape
+      color = imgs['color'].view(-1, *imgs['color'].shape[2:])
+      print color.shape
+      show_batch(make_grid(color, nrow=3, padding=25))
     elif mode == 1:
-      show_batch(make_grid(imgs['depth'][:, 1, ...], nrow=1, padding=25, normalize=True))
+      print imgs['depth'].shape
+      depth = imgs['depth'].view(-1, *imgs['depth'].shape[2:])
+      print depth.shape
+      show_batch(make_grid(depth, nrow=3, padding=25))
     elif mode == 2:
-      lb = make_grid(imgs['color'], nrow=1, padding=25, normalize=True)
-      rb = make_grid(imgs['depth'], nrow=1, padding=25, normalize=True)
+      print imgs['color'].shape
+      print imgs['depth'].shape
+      color = imgs['color'].view(-1, *imgs['color'].shape[2:])
+      depth = imgs['depth'].view(-1, *imgs['depth'].shape[2:])
+      print color.shape
+      print depth.shape
+
+      lb = make_grid(color, nrow=3, padding=25)
+      rb = make_grid(depth, nrow=3, padding=25)
 
       show_stereo_batch(lb, rb)
 

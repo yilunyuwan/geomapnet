@@ -19,5 +19,5 @@ def load_image(filename, loader=default_loader):
   return img
 
 def load_depth(filename):
-  img = Image.open(filename).convert('I;16')
+  img = Image.open(filename).convert('I')
   return img

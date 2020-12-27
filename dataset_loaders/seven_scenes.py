@@ -156,9 +156,9 @@ class SevenScenes(data.Dataset):
         if self.mode == 2:
           img = {'color': self.transform(img['color']), 'depth': self.depth_transform(img['depth'])}
         elif self.mode == 1:
-          img = self.depth_transform(img['depth'])
+          img = {'depth': self.depth_transform(img['depth'])}
         else:
-          img = self.transform(img['color'])
+          img = {'color': self.transform(img['color'])}
 
       return img, pose
 
@@ -173,7 +173,7 @@ def main():
   from torchvision.utils import make_grid
   import torchvision.transforms as transforms
   seq = 'chess'
-  mode = 2
+  mode = 0
   num_workers = 6
   transform = transforms.Compose([
     transforms.Resize(256),
@@ -195,12 +195,12 @@ def main():
   for (imgs, poses) in data_loader:
     print 'Minibatch {:d}'.format(batch_count)
     if mode == 0:
-      show_batch(make_grid(imgs, nrow=1, padding=25, normalize=True))
+      show_batch(make_grid(imgs['color'], nrow=1, padding=25))
     elif mode == 1:
-      show_batch(make_grid(imgs['depth'], nrow=1, padding=25, normalize=True))
+      show_batch(make_grid(imgs['depth'], nrow=1, padding=25))
     elif mode == 2:
-      lb = make_grid(imgs['color'], nrow=1, padding=25, normalize=True)
-      rb = make_grid(imgs['depth'], nrow=1, padding=25, normalize=True)
+      lb = make_grid(imgs['color'], nrow=1, padding=25)
+      rb = make_grid(imgs['depth'], nrow=1, padding=25)
       show_stereo_batch(lb, rb)
 
     batch_count += 1
