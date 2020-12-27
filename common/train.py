@@ -207,6 +207,7 @@ class Trainer(object):
     """
     Function that does the training and validation
     :param lstm: whether the model is an LSTM
+    :param geopose: whether the model is an geopose
     :return: 
     """
     for epoch in xrange(self.start_epoch, self.config['n_epochs']):
@@ -223,10 +224,12 @@ class Trainer(object):
 
           kwargs = dict(target=target, criterion=self.val_criterion,
             optim=self.optimizer, train=False)
-          if lstm:
-            loss, _ = step_lstm(data, self.model, self.config['cuda'], **kwargs)
+          if geopose:
+            loss, _ = step_geopose(data, self.model, self.config['cuda'], **kwargs)
+          elif lstm:
+            loss, _ = step_lstm(data['color'], self.model, self.config['cuda'], **kwargs)
           else:
-            loss, _ = step_feedfwd(data, self.model, self.config['cuda'],
+            loss, _ = step_feedfwd(data['color'], self.model, self.config['cuda'],
               **kwargs)
 
           val_loss.update(loss)
@@ -281,9 +284,9 @@ class Trainer(object):
         if geopose:
           loss, _ = step_geopose(data, self.model, self.config['cuda'], **kwargs)
         elif lstm:
-          loss, _ = step_lstm(data, self.model, self.config['cuda'], **kwargs)
+          loss, _ = step_lstm(data['color'], self.model, self.config['cuda'], **kwargs)
         else:
-          loss, _ = step_feedfwd(data, self.model, self.config['cuda'],
+          loss, _ = step_feedfwd(data['color'], self.model, self.config['cuda'],
             **kwargs)
 
         train_batch_time.update(time.time() - end)
@@ -328,7 +331,7 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
     train=True, max_grad_norm=0.0):
   """
   training/validation step for a feedforward NN
-  :param data: 
+  :param data: {'color': B x STEPS x 3 x H x W, 'depth': B x STEPS x 1 x H x W}
   :param target: 
   :param model: 
   :param criterion: 
@@ -341,9 +344,11 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
   if train:
     assert criterion is not None
 
-  data_var = Variable(data, requires_grad=train)
+  color_var = Variable(data['color'], requires_grad=train)
+  depth_var = Variable(data['depth'], requires_grad=train)
   if cuda:
-    data_var = data_var.cuda(async=True)
+    color_var = color_var.cuda(async=True)
+    depth_var = depth_var.cuda(async=True)
   with torch.set_grad_enabled(train):
     output = model(data_var)
 

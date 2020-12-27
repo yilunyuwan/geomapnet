@@ -77,7 +77,7 @@ feature_extractor = models.resnet50(pretrained=True)
 posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True,
                   filter_nans=(args.model=='mapnet++'))
 if args.model == 'geoposenet':
-  model = posenet
+  model = MapNet(mapnet=posenet)
 elif args.model == 'posenet':
   model = posenet
 elif args.model.find('mapnet') >= 0:
