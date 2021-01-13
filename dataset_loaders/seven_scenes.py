@@ -120,14 +120,14 @@ class SevenScenes(data.Dataset):
         if self.mode == 0:
           img = None
           while img is None:
-            img = {'color': load_image(self.c_imgs[index])}
+            img = {'c': load_image(self.c_imgs[index])}
             pose = self.poses[index]
             index += 1
           index -= 1
         elif self.mode == 1:
           img = None
           while img is None:
-            img = {'depth': load_depth(self.d_imgs[index])}
+            img = {'d': load_depth(self.d_imgs[index])}
             pose = self.poses[index]
             index += 1
           index -= 1
@@ -141,7 +141,7 @@ class SevenScenes(data.Dataset):
             # d_img = load_image(self.d_imgs[index])
             pose = self.poses[index]
             index += 1
-          img = {'color': c_img, 'depth': d_img}
+          img = {'c': c_img, 'd': d_img}
           index -= 1
         else:
           raise Exception('Wrong mode {:d}'.format(self.mode))
@@ -154,11 +154,11 @@ class SevenScenes(data.Dataset):
 
       if self.transform is not None:
         if self.mode == 2:
-          img = {'color': self.transform(img['color']), 'depth': self.depth_transform(img['depth'])}
+          img = {'c': self.transform(img['c']), 'd': self.depth_transform(img['d'])}
         elif self.mode == 1:
-          img = {'depth': self.depth_transform(img['depth'])}
+          img = {'d': self.depth_transform(img['d'])}
         else:
-          img = {'color': self.transform(img['color'])}
+          img = {'c': self.transform(img['c'])}
 
       return img, pose
 
@@ -195,12 +195,12 @@ def main():
   for (imgs, poses) in data_loader:
     print 'Minibatch {:d}'.format(batch_count)
     if mode == 0:
-      show_batch(make_grid(imgs['color'], nrow=1, padding=25))
+      show_batch(make_grid(imgs['c'], nrow=1, padding=25))
     elif mode == 1:
-      show_batch(make_grid(imgs['depth'], nrow=1, padding=25))
+      show_batch(make_grid(imgs['d'], nrow=1, padding=25))
     elif mode == 2:
-      lb = make_grid(imgs['color'], nrow=1, padding=25)
-      rb = make_grid(imgs['depth'], nrow=1, padding=25)
+      lb = make_grid(imgs['c'], nrow=1, padding=25)
+      rb = make_grid(imgs['d'], nrow=1, padding=25)
       show_stereo_batch(lb, rb)
 
     batch_count += 1

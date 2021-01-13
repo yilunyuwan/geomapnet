@@ -78,7 +78,7 @@ class MF(data.Dataset):
     """
     :param index: 
     :return: imgs(if self.mode=2): 
-        {'color': STEPS x 3 x H x W, 'depth': STEPS x 1 x H x W }              
+        {'c': STEPS x 3 x H x W, 'd': STEPS x 1 x H x W }              
              poses: STEPS x 7
              vos: (STEPS-1) x 7 (only if include_vos = True)
     """
@@ -86,11 +86,11 @@ class MF(data.Dataset):
     clip  = [self.dset[i] for i in idx]
 
     if self.mode == 2:
-      imgs = {'color': torch.stack([c[0]['color'] for c in clip], dim=0), 'depth': torch.stack([c[0]['depth'] for c in clip], dim=0)}
+      imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0), 'd': torch.stack([c[0]['d'] for c in clip], dim=0)}
     elif self.mode == 1:
-      imgs = { 'depth': torch.stack([c[0]['depth'] for c in clip], dim=0)}
+      imgs = { 'd': torch.stack([c[0]['d'] for c in clip], dim=0)}
     else:
-      imgs = {'color': torch.stack([c[0]['color'] for c in clip], dim=0)}
+      imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0)}
     poses = torch.stack([c[1] for c in clip], dim=0)
     if self.include_vos:
       # vos = calc_vos_simple(poses.unsqueeze(0))[0] if self.train else \
@@ -179,6 +179,7 @@ def main():
   seq = 'chess'
   steps = 3
   skip = 10
+   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
   transform = transforms.Compose([
@@ -202,25 +203,25 @@ def main():
   batch_count = 0
   N = 2
   for (imgs, poses) in data_loader:
-    # imgs: {'color': B x steps x 3 x H x W, 'depth': B x steps x 1 x H x W}
+    # imgs: {'c': B x steps x 3 x H x W, 'd': B x steps x 1 x H x W}
 
     print 'Minibatch {:d}'.format(batch_count)
 
     if mode == 0:
-      print imgs['color'].shape
-      color = imgs['color'].view(-1, *imgs['color'].shape[2:])
+      print imgs['c'].shape
+      color = imgs['c'].view(-1, *imgs['c'].shape[2:])
       print color.shape
       show_batch(make_grid(color, nrow=3, padding=25))
     elif mode == 1:
-      print imgs['depth'].shape
-      depth = imgs['depth'].view(-1, *imgs['depth'].shape[2:])
+      print imgs['d'].shape
+      depth = imgs['d'].view(-1, *imgs['d'].shape[2:])
       print depth.shape
       show_batch(make_grid(depth, nrow=3, padding=25))
     elif mode == 2:
-      print imgs['color'].shape
-      print imgs['depth'].shape
-      color = imgs['color'].view(-1, *imgs['color'].shape[2:])
-      depth = imgs['depth'].view(-1, *imgs['depth'].shape[2:])
+      print imgs['c'].shape
+      print imgs['d'].shape
+      color = imgs['c'].view(-1, *imgs['c'].shape[2:])
+      depth = imgs['d'].view(-1, *imgs['d'].shape[2:])
       print color.shape
       print depth.shape
 

@@ -227,9 +227,9 @@ class Trainer(object):
           if geopose:
             loss, _ = step_geopose(data, self.model, self.config['cuda'], **kwargs)
           elif lstm:
-            loss, _ = step_lstm(data['color'], self.model, self.config['cuda'], **kwargs)
+            loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
           else:
-            loss, _ = step_feedfwd(data['color'], self.model, self.config['cuda'],
+            loss, _ = step_feedfwd(data['c'], self.model, self.config['cuda'],
               **kwargs)
 
           val_loss.update(loss)
@@ -284,9 +284,9 @@ class Trainer(object):
         if geopose:
           loss, _ = step_geopose(data, self.model, self.config['cuda'], **kwargs)
         elif lstm:
-          loss, _ = step_lstm(data['color'], self.model, self.config['cuda'], **kwargs)
+          loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
         else:
-          loss, _ = step_feedfwd(data['color'], self.model, self.config['cuda'],
+          loss, _ = step_feedfwd(data['c'], self.model, self.config['cuda'],
             **kwargs)
 
         train_batch_time.update(time.time() - end)
@@ -331,7 +331,7 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
     train=True, max_grad_norm=0.0):
   """
   training/validation step for a feedforward NN
-  :param data: {'color': B x STEPS x 3 x H x W, 'depth': B x STEPS x 1 x H x W}
+  :param data: {'c': B x STEPS x 3 x H x W, 'd': B x STEPS x 1 x H x W}
   :param target: 
   :param model: 
   :param criterion: 
@@ -344,13 +344,13 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
   if train:
     assert criterion is not None
 
-  color_var = Variable(data['color'], requires_grad=train)
-  depth_var = Variable(data['depth'], requires_grad=train)
+  color_var = Variable(data['c'], requires_grad=False)
+  depth_var = Variable(data['d'], requires_grad=False)
   if cuda:
     color_var = color_var.cuda(async=True)
     depth_var = depth_var.cuda(async=True)
   with torch.set_grad_enabled(train):
-    output = model(data_var)
+    output = model(color_var)
 
   if criterion is not None:
     if cuda:
@@ -358,7 +358,7 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
 
     target_var = Variable(target, requires_grad=False)
     with torch.set_grad_enabled(train):
-      loss = criterion(output, target_var, data_var)
+      loss = criterion(output, target_var, color_var, depth_var)
 
     if train:
       # SGD step

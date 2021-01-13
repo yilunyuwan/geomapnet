@@ -18,9 +18,38 @@ import transforms3d.euler as txe
 #from IPython.core.debugger import set_trace
 
 ## PYTORCH
-def photometric_reconstruction():
-  return 
+def test():
+  p0_mat = np.array(\
+      [[  9.9935108e-001,	 -1.5576084e-002,	  3.1508941e-002,	 -1.2323361e-001],
+      [  9.2375092e-003,	  9.8130137e-001,	  1.9211653e-001,	 -1.1206967e+000],
+      [ -3.3912845e-002,	 -1.9170459e-001,	  9.8083067e-001,	 -9.8870575e-001]])
+  p1_mat = np.array(\
+    [[  9.9947208e-001,	 -1.7074969e-002,	  2.6456753e-002,	 -1.3497546e-001],	
+    [  1.1518061e-002,	  9.8020732e-001,	  1.9749597e-001,	 -1.1157234e+000],	
+    [ -2.9305888e-002,	 -1.9709112e-001,	  9.7990990e-001,	 -9.7485054e-001]])
+  p0_in = p0_mat.flatten().reshape(1, -1)
+  p1_in = p1_mat.flatten().reshape(1, -1)
+  # print p1_in.shape
+  p0_logq = process_poses(p0_in, mean_t=np.zeros(3), std_t=np.ones(3), align_R=np.eye(3), align_t=np.zeros(3), align_s=1)
+
+  p1_logq = process_poses(p1_in, mean_t=np.zeros(3), std_t=np.ones(3), align_R=np.eye(3), align_t=np.zeros(3), align_s=1)
+  print torch.from_numpy(p0_logq).size()
+  rel_p01 = calc_relative_pose_logq(torch.from_numpy(p0_logq), torch.from_numpy(p1_logq))
+  print rel_p01 
+
+  p0_mat4 = np.concatenate((p0_mat, [[0, 0, 0, 1]]), axis=0)
+  p0_mat4_inverse = np.linalg.inv(p0_mat4)
+  # print p0_mat4, p0_mat4_inverse
+  p1_mat4 = np.concatenate((p1_mat, [[0, 0, 0, 1]]), axis=0)
+  rel_mat01 = np.matmul(p1_mat4, p0_mat4_inverse)
+  # print rel_mat01
+  rel_q01 = txq.mat2quat(rel_mat01[:3, :3])
+  rel_t01 = rel_mat01[:3, 3]
+  print np.hstack((rel_t01, rel_q01))
+
   
+
+
 def vdot(v1, v2):
   """
   Dot product along the dim=1
@@ -29,13 +58,13 @@ def vdot(v1, v2):
   :return: N x 1
   """
   out = torch.mul(v1, v2)
-  out = torch.sum(out, 1)
+  out = torch.sum(out, 1, keepdim=True)
   return out
 
 def normalize(x, p=2, dim=0):
   """
   Divides a tensor along a certain dim by the Lp norm
-  :param x: 
+  :param x: N x d
   :param p: Lp norm
   :param dim: Dimension to normalize along
   :return: 
@@ -46,7 +75,7 @@ def normalize(x, p=2, dim=0):
 
 def qmult(q1, q2):
   """
-  Multiply 2 quaternions
+  Multiply 2 quaternions  q1q2(q1 left multiply q2)
   :param q1: Tensor N x 4
   :param q2: Tensor N x 4
   :return: quaternion product, Tensor N x 4
@@ -88,7 +117,7 @@ def qexp_t(q):
 
 def qlog_t(q):
   """
-  Applies the log map to a quaternion
+  Applies the log map to a unit quaternion
   :param q: N x 4
   :return: N x 3
   """
@@ -125,7 +154,7 @@ def rotate_vec_by_q(t, q):
   rotates vector t by quaternion q
   :param t: vector, Tensor N x 3
   :param q: quaternion, Tensor N x 4
-  :return: t rotated by q: t' = t + 2*qs*(qv x t) + 2*qv x (qv x r) 
+  :return: t rotated by q: t' = t + 2*qs*(qv x t) + 2*qv x (qv x t) 
   """
   qs, qv = q[:, :1], q[:, 1:]
   b  = torch.cross(qv, t, dim=1)
@@ -172,7 +201,7 @@ def calc_vo_logq(p0, p1):
   VO (in the p0 frame) (logq)
   :param p0: N x 6
   :param p1: N x 6
-  :return: N-1 x 6
+  :return: N-1 x 6 (? maybe should be N x 6)
   """
   q0 = qexp_t(p0[:, 3:])
   q1 = qexp_t(p1[:, 3:])
@@ -204,6 +233,21 @@ def calc_vo_relative_logq(p0, p1):
                          torch.cat((p1[:, :3], q1), dim=1))
   vos_q = qlog_t(vos[:, 3:])
   return torch.cat((vos[:, :3], vos_q), dim=1)
+
+def calc_relative_pose_logq(p0, p1):
+  """
+  Calculates VO p0->p1 (in the p1 frame) from 2 poses (log q)
+  :param p0: N x 6
+  :param p1: N x 6
+  :return: N x 7
+  """
+  q0 = qexp_t(p0[:, 3:])
+  q1 = qexp_t(p1[:, 3:])
+
+  # I think qmult(q1, qinv(q0)) is q1q0* (the code author may use qmult(qinv(q0), q1) as q1q0*)
+  vos_q = qmult(q1, qinv(q0))
+  vos_t = p1[:, :3] - rotate_vec_by_q(p0[:, :3], vos_q)
+  return torch.cat((vos_t, vos_q), dim=1)
 
 def calc_vo_relative_logq_safe(p0, p1):
   """
@@ -338,7 +382,7 @@ def process_poses(poses_in, mean_t, std_t, align_R, align_t, align_s):
   :param align_R: 3 x 3
   :param align_t: 3
   :param align_s: 1
-  :return: processed poses (translation + quaternion) N x 7
+  :return: processed poses (translation + quaternion) N x 7 (maybe translation + log quaternion N x 6)
   """
   poses_out = np.zeros((len(poses_in), 6))
   poses_out[:, 0:3] = poses_in[:, [3, 7, 11]]
@@ -1283,7 +1327,8 @@ def test_log_q_error():
   print 'Error: {:f}'.format(log_quaternion_angular_error(q1, q2))
 
 if __name__ == '__main__':
-  test_pgo()
+  test()
+  # test_pgo()
   # test_dumb_pgo()
   # test_align_camera_poses()
   # test_q_error()

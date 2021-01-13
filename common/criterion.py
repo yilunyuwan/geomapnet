@@ -79,11 +79,12 @@ class GeoPoseNetCriterion(nn.Module):
     self.srq = nn.Parameter(torch.Tensor([srq]), requires_grad=learn_gamma)
     """
 
-  def forward(self, pred, targ, data):
+  def forward(self, pred, targ, color, depth):
     """
     :param pred: N x T x 6
     :param targ: N x T x 6
-    :param data: [N x T x 3 x H x W, N x T x H x W] [color map, depth map]
+    :param color: N x T x 3 x H x W 
+    :param depth: N x T x 1 x H x W
     :return:
     """
 
@@ -97,19 +98,22 @@ class GeoPoseNetCriterion(nn.Module):
                                             targ.view(-1, *s[2:])[:, 3:]) + \
       self.saq
 
-    # get the VOs
-    pred_vos = pose_utils.calc_vos_simple(pred)
-    targ_vos = pose_utils.calc_vos_simple(targ)
-
-    # VO loss
-    s = pred_vos.size()
-    vo_loss = \
-      torch.exp(-self.srx) * self.t_loss_fn(pred_vos.view(-1, *s[2:])[:, :3],
-                                            targ_vos.view(-1, *s[2:])[:, :3]) + \
-      self.srx + \
-      torch.exp(-self.srq) * self.q_loss_fn(pred_vos.view(-1, *s[2:])[:, 3:],
-                                            targ_vos.view(-1, *s[2:])[:, 3:]) + \
-      self.srq
+    # get the photometric reconstruction
+    # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
+    mid = s[1] / 2
+    # src_imgs, tgt_imgs: (N*ceil(T/2)) x 3 x H x W 
+    # tgt_depths: (N*ceil(T/2)) x 1 x H x W 
+    src_imgs = color[:, :mid+1, ...].reshape(-1, *color.size()[2:])
+    tgt_imgs = color[:, mid:, ...].reshape(-1, *color.size()[2:])
+    tgt_depths = depth[:, mid:, ...].reshape(-1, *depth.size()[2:])
+    
+    src_pred = pred[:, :mid+1, ...].reshape(-1, *s[2:])
+    tgt_pred = pred[:, mid:, ...].reshape(-1, *s[2:])
+    src_targ = targ[:, :mid+1, ...].reshape(-1, *s[2:])
+    tgt_targ = targ[:, mid:, ...].reshape(-1, *s[2:])
+    # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
+    pred_relative_poses = calc_relative_pose_logq(tgt_pred, src_pred)
+    targ_relative_poses = calc_relative_pose_logq(tgt_targ, src_targ) 
 
     # total loss
     loss = abs_loss + vo_loss
