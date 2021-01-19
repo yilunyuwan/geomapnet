@@ -210,6 +210,20 @@ def calc_vo_logq(p0, p1):
   vos_q = qlog_t(vos[:, 3:])
   return torch.cat((vos[:, :3], vos_q), dim=1)
 
+def calc_vo_logq2q(p0, p1):
+  """
+  Calculates VO (t + q) p1->p0 (in the p0 frame) from 2 poses (t + log q)
+  :param p0: N x 6
+  :param p1: N x 6
+  :return: N x 7
+  """
+  q0 = qexp_t(p0[:, 3:])
+  q1 = qexp_t(p1[:, 3:])
+
+  vos = calc_vo(torch.cat((p0[:, :3], q0), dim=1), torch.cat((p1[:, :3], q1),
+                                                             dim=1))
+  return vos
+
 def calc_vo_relative(p0, p1):
   """
   calculates VO (in the world frame) from 2 poses
@@ -234,20 +248,6 @@ def calc_vo_relative_logq(p0, p1):
   vos_q = qlog_t(vos[:, 3:])
   return torch.cat((vos[:, :3], vos_q), dim=1)
 
-def calc_relative_pose_logq(p0, p1):
-  """
-  Calculates VO p0->p1 (in the p1 frame) from 2 poses (log q)
-  :param p0: N x 6
-  :param p1: N x 6
-  :return: N x 7
-  """
-  q0 = qexp_t(p0[:, 3:])
-  q1 = qexp_t(p1[:, 3:])
-
-  # I think qmult(q1, qinv(q0)) is q1q0* (the code author may use qmult(qinv(q0), q1) as q1q0*)
-  vos_q = qmult(q1, qinv(q0))
-  vos_t = p1[:, :3] - rotate_vec_by_q(p0[:, :3], vos_q)
-  return torch.cat((vos_t, vos_q), dim=1)
 
 def calc_vo_relative_logq_safe(p0, p1):
   """

@@ -1,0 +1,1 @@
+python geoposenet_train.py --dataset 7Scenes --scene chess --config_file configs/geoposenet.ini --model geoposenet --device 0 --learn_beta

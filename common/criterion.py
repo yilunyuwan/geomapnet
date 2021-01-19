@@ -8,7 +8,8 @@ This module implements the various loss functions (a.k.a. criterions) used
 in the paper
 """
 
-from common import pose_utils
+from pose_utils import calc_vo_logq2q
+from reconstruction_utils import reconstruction
 import torch
 from torch import nn
 
@@ -112,11 +113,15 @@ class GeoPoseNetCriterion(nn.Module):
     src_targ = targ[:, :mid+1, ...].reshape(-1, *s[2:])
     tgt_targ = targ[:, mid:, ...].reshape(-1, *s[2:])
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
-    pred_relative_poses = calc_relative_pose_logq(tgt_pred, src_pred)
-    targ_relative_poses = calc_relative_pose_logq(tgt_targ, src_targ) 
+    pred_relative_poses = calc_vo_logq2q(src_pred, tgt_pred)
+    targ_relative_poses = calc_vo_logq2q(src_pred, tgt_pred) 
+    
+    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses)
+    diff = (projected_imgs - tgt_imgs) * valid_points.float()
+    reconstruction_loss = diff.abs().mean()
 
     # total loss
-    loss = abs_loss + vo_loss
+    loss = abs_loss + reconstruction_loss
     return loss
 
 class MapNetCriterion(nn.Module):

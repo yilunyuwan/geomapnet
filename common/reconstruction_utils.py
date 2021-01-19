@@ -234,7 +234,7 @@ def q2mat(quat):
                           2*xz - 2*wy, 2*wx + 2*yz, w2 - x2 - y2 + z2], dim=1).reshape(B, 3, 3)
     return rotMat
 
-def generate_uv_coords(b, h, w):
+def generate_uv1_coords(b, h, w):
     """
     Generate [u, v, 1] coordinates 
     Args:
@@ -244,11 +244,27 @@ def generate_uv_coords(b, h, w):
     Returns:
         uv_coords -- [B, 3, H, W]
     """
-    u_range, v_range = torch.linspace(-1, 1, w), torch.linspace(-1, 1, h)
+    u_range, v_range = torch.linspace(0, w - 1, w), torch.linspace(0, h - 1, h)
     grid_v, grid_u = torch.meshgrid([v_range, u_range])
     grid_ones = torch.ones(h, w)
     uv_coords = torch.stack((grid_u, grid_v, grid_ones), dim=0) # [3, H, W]
     uv_coords = uv_coords.expand(b, *uv_coords.size()) # [B, 3, H, W]
+    return uv_coords
+
+def generate_norm_coords(b, h, w):
+    """
+    Generate [u, v] coordinates normalized in the range of [-1, 1] 
+    Args:
+        b: batch_size
+        h: image height
+        w: image width
+    Returns:
+        uv_coords -- [B, H, W, 2]
+    """
+    u_range, v_range = torch.linspace(-1, 1, w), torch.linspace(-1, 1, h)
+    grid_v, grid_u = torch.meshgrid([v_range, u_range])
+    uv_coords = torch.stack((grid_u, grid_v), dim=2) # [H, W, 2]
+    uv_coords = uv_coords.expand(b, *uv_coords.size()) # [B, H, W, 2]
     return uv_coords
 
 def generate_warp_coords(tgt_depths, relative_poses, intrinsics=None):
@@ -269,26 +285,48 @@ def generate_warp_coords(tgt_depths, relative_poses, intrinsics=None):
                                     [0, 585, 240],
                                     [0, 0, 1]]).float()
         intrinsics_inverse = intrinsics.inverse()
-    uv_coords = generate_uv_coords(b, h, w) # [B, 3, H, W]
+    uv_coords = generate_uv1_coords(b, h, w) # [B, 3, H, W]
     cam_coords = torch.matmul(intrinsics_inverse, uv_coords.reshape(b, 3, -1)) # [B, 3, H*W]
-    # print uv_coords.size()
-    # print cam_coords.size()
+    # torch.set_printoptions(precision=8)
+    # print cam_coords
     # depth map is a 16-bit image, and unit is millimeter
-    cam_coords = cam_coords * tgt_depths.reshape(b, 1, h*w).expand(b, 3, h*w) / 1000 # [B, 3, H*W]
+    cam_coords = cam_coords.type_as(tgt_depths) * tgt_depths.reshape(b, 1, h*w).expand(b, 3, h*w) / 1000 # [B, 3, H*W]
+    # print tgt_depths.reshape(b, 1, h*w)
+    # print(tgt_depths.size())
+    # a = 1.0
+    # for i in cam_coords.size():
+    #     a *= i
+    # n = torch.sum(cam_coords == 0).float()
+    # print a, a-n, (a-n)*1.0/a*100
+    # print cam_coords
     translation = relative_poses[:, :3].unsqueeze(-1)  # [B, 3, 1]
     rot_mat = q2mat(relative_poses[:, 3:]) # [B, 3, 3]
     transform_mat = torch.cat([rot_mat, translation], dim=2)  # [B, 3, 4]
-    proj_coords = torch.bmm(rot_mat, cam_coords) + translation
-    warp_coords = torch.matmul(intrinsics, proj_coords) # [B, 3, H*W]
-    src_x, src_y, src_z = warp_coords[:, 0], warp_coords[:, 1], warp_coords[:, 2].clamp(min=1e-3) # [B, H*W]
+    proj_coords = torch.matmul(rot_mat, cam_coords) + translation
+    warp_coords = torch.matmul(intrinsics.type_as(tgt_depths), proj_coords) # [B, 3, H*W]
+    src_x, src_y, src_z = warp_coords[:, 0], warp_coords[:, 1], warp_coords[:, 2].clamp(min=1e-10) # [B, H*W]
 
-    src_u = src_x / src_z
-    src_v = src_y / src_z 
+    src_u = 2 * (src_x / src_z) / (w - 1) - 1
+    src_v = 2 * (src_y / src_z) / (h - 1) - 1
 
     warp_coords = torch.stack([src_u, src_v], dim=2)  # [B, H*W, 2]
     return warp_coords.reshape(b, h, w, 2)
 
-def reconstruction(imgs, depths, poses, intrinsics=None, padding_mode='zeros'):
+def calc_valid_points(depths, coords_norm, max_dist):
+    b, _, h, w = depths.size()
+
+    valid_depth_points = (depths < 65535) * (depths > 0)
+    valid_coords_points = coords_norm.abs().max(dim=-1)[0] <= 1
+    valid_coords_points = valid_coords_points.unsqueeze(1)
+
+    standard_coords = generate_norm_coords(b, h, w).type_as(depths) # [B, H, W, 2]
+    valid_dist_points = (coords_norm - standard_coords).abs().max(dim=-1)[0] <= max_dist
+    valid_dist_points = valid_dist_points.unsqueeze(1)
+    valid_points = valid_depth_points * valid_coords_points * valid_dist_points
+
+    return valid_points
+
+def reconstruction(imgs, depths, poses, intrinsics=None, max_dist=0.5,padding_mode='zeros'):
     """
     Reconstruct the target image from a source image.
 
@@ -306,10 +344,19 @@ def reconstruction(imgs, depths, poses, intrinsics=None, padding_mode='zeros'):
 
     # Get projection matrix for tgt camera frame to source pixel frame
     src_pixel_coords = generate_warp_coords(depths, poses, intrinsics)
-    print src_pixel_coords
+    # print src_pixel_coords
     projected_imgs = F.grid_sample(imgs, src_pixel_coords, padding_mode=padding_mode)
 
-    valid_points = src_pixel_coords.abs().max(dim=-1)[0] <= 1
+    valid_points = calc_valid_points(depths, src_pixel_coords, max_dist)
+    
+
+    # a = 1.0
+    # for i in valid_points.size():
+    #     a *= i
+    # n1 = torch.sum(valid_depth_points == 0).float()
+    # n2 = torch.sum(valid_coords_points == 0).float()
+    # n3 = torch.sum(valid_points == 0).float()
+    # print a, a-n1, a-n2, a-n3
 
     return projected_imgs, valid_points
 
@@ -321,8 +368,8 @@ def main():
   from torch.utils import data
   from torchvision.utils import make_grid
   import torchvision.transforms as transforms
-  from vis_utils import show_batch, show_stereo_batch
-  from pose_utils import calc_relative_pose_logq
+  from vis_utils import show_batch, show_stereo_batch, show_triplet_batch
+  from pose_utils import calc_vo_logq2q
   import sys
   sys.path.insert(0, '../')
   from dataset_loaders.composite import MF
@@ -331,7 +378,7 @@ def main():
   data_path = '../data/deepslam_data/7Scenes'
   seq = 'chess'
   steps = 3
-  skip = 10
+  skip = 1
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
@@ -343,7 +390,7 @@ def main():
   depth_transform = transforms.Compose([
     transforms.Resize(256),
     transforms.ToTensor(),
-		transforms.Lambda(lambda x: x.float())
+	transforms.Lambda(lambda x: x.float())
   ])
   target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
   kwargs = dict(scene=seq, data_path=data_path, transform=transform,
@@ -364,7 +411,6 @@ def main():
     # poses: B x steps x 6 translation + log q
     print 'Minibatch {:d}'.format(batch_count)
     color, depth = imgs['c'], imgs['d']
-    print color.size()
     targ = poses
     s = poses.size()
     # get the photometric reconstruction
@@ -375,25 +421,29 @@ def main():
     src_imgs = color[:, :mid+1, ...].reshape(-1, *color.size()[2:])
     tgt_imgs = color[:, mid:, ...].reshape(-1, *color.size()[2:])
     tgt_depths = depth[:, mid:, ...].reshape(-1, *depth.size()[2:])
-    print src_imgs.size(), tgt_imgs.size(), tgt_depths.size()
+    # print src_imgs.size(), tgt_imgs.size(), tgt_depths.size()
 
     src_targ = targ[:, :mid+1, ...].reshape(-1, *s[2:])
     tgt_targ = targ[:, mid:, ...].reshape(-1, *s[2:])
-    print src_targ.size(), tgt_targ.size()
+    # print src_targ.size(), tgt_targ.size()
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
-    targ_relative_poses = calc_relative_pose_logq(tgt_targ, src_targ) 
-    print targ_relative_poses.shape
+    targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
+    # print targ_relative_poses.shape
     projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses)
-
     # print valid_points
+    a = 1.0
+    for i in valid_points.size():
+        a *= i
+    n = torch.sum(valid_points == 0).float()
+    print a, a-n, (a-n)/a*100
 
-
-
-    lb = make_grid(tgt_imgs, nrow=mid+1, padding=25)
+    lb = make_grid(projected_imgs * valid_points.float(), nrow=mid+1, padding=25)
+    # lb = make_grid(src_imgs, nrow=mid+1, padding=25)
+    mb = make_grid(tgt_imgs, nrow=mid+1, padding=25)
     rb = make_grid(projected_imgs, nrow=mid+1, padding=25)
 
 
-    show_stereo_batch(lb, rb)
+    show_triplet_batch(lb, mb, rb)
 
     batch_count += 1
     if batch_count >= N:

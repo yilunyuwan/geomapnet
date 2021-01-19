@@ -18,6 +18,13 @@ def show_stereo_batch(l_batch, r_batch):
   plt.imshow(np.concatenate((l_npimg, r_npimg), axis=1), interpolation='nearest')
   plt.show()
 
+def show_triplet_batch(l_batch, m_batch, r_batch):
+  l_npimg = np.transpose(l_batch.numpy(), (1,2,0))
+  m_npimg = np.transpose(m_batch.numpy(), (1,2,0))
+  r_npimg = np.transpose(r_batch.numpy(), (1,2,0))
+  plt.imshow(np.concatenate((l_npimg, m_npimg, r_npimg), axis=1), interpolation='nearest')
+  plt.show()
+
 def vis_tsne(embedding, images, ax=None):
   """
 

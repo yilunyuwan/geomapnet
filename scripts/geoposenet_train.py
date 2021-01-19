@@ -10,7 +10,7 @@ import set_paths
 from common.train import Trainer
 from common.optimizer import Optimizer
 from common.criterion import PoseNetCriterion, MapNetCriterion,\
-  MapNetOnlineCriterion
+  MapNetOnlineCriterion, GeoPoseNetCriterion
 from models.posenet import PoseNet, MapNet
 from dataset_loaders.composite import MF, MFOnline
 import os.path as osp
@@ -73,7 +73,7 @@ section = settings['training']
 seed = section.getint('seed')
 
 # model
-feature_extractor = models.resnet50(pretrained=True)
+feature_extractor = models.resnet34(pretrained=True)
 posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True,
                   filter_nans=(args.model=='mapnet++'))
 if args.model == 'geoposenet':
@@ -131,8 +131,11 @@ if color_jitter > 0:
 tforms.append(transforms.ToTensor())
 tforms.append(transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1])))
 data_transform = transforms.Compose(tforms)
-depth_transform = transforms.Compose([transforms.Resize(256),\
-                                      transforms.ToTensor()])
+depth_transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.ToTensor(),
+	  transforms.Lambda(lambda x: x.float())
+  ])
 target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
 
 # datasets
