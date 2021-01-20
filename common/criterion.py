@@ -114,9 +114,9 @@ class GeoPoseNetCriterion(nn.Module):
     tgt_targ = targ[:, mid:, ...].reshape(-1, *s[2:])
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
     pred_relative_poses = calc_vo_logq2q(src_pred, tgt_pred)
-    targ_relative_poses = calc_vo_logq2q(src_pred, tgt_pred) 
+    targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
     
-    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses)
+    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
     diff = (projected_imgs - tgt_imgs) * valid_points.float()
     reconstruction_loss = diff.abs().mean()
 

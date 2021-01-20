@@ -18,4 +18,5 @@ dependencies:
 - pip:
   - colour-demosaicing
   - transforms3d
-  - visdom
+  - visdom==0.1.7
+  - pytorch-msssim
