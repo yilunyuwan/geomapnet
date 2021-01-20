@@ -72,7 +72,7 @@ feature_extractor = models.resnet34(pretrained=False)
 posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=False)
 if (args.model.find('mapnet') >= 0) or args.pose_graph:
   model = MapNet(mapnet=posenet)
-else:
+else: # geoposenet use posenet model when evaluation
   model = posenet
 model.eval()
 
@@ -163,7 +163,7 @@ for batch_idx, (data, target) in enumerate(loader):
   idx = idx[len(idx) / 2]
 
   # output : 1 x 6 or 1 x STEPS x 6
-  _, output = step_feedfwd(data, model, CUDA, train=False)
+  _, output = step_feedfwd(data['c'], model, CUDA, train=False)
   s = output.size()
   output = output.cpu().data.numpy().reshape((-1, s[-1]))
   target = target.numpy().reshape((-1, s[-1]))
