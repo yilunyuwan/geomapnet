@@ -12,6 +12,7 @@ from pose_utils import calc_vo_logq2q
 from reconstruction_utils import reconstruction
 import torch
 from torch import nn
+from ssim import ssim, ms_ssim
 
 class QuaternionLoss(nn.Module):
   """
@@ -120,8 +121,10 @@ class GeoPoseNetCriterion(nn.Module):
     diff = (projected_imgs - tgt_imgs) * valid_points.float()
     reconstruction_loss = diff.abs().mean()
 
+    # MS-SSIM loss
+    ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=255, size_average=True))
     # total loss
-    loss = abs_loss + reconstruction_loss
+    loss = abs_loss + 0.15 * reconstruction_loss + 0.85* ms_ssim_loss
     return loss
 
 class MapNetCriterion(nn.Module):
