@@ -37,7 +37,8 @@ class PoseNet(nn.Module):
   def __init__(self, feature_extractor, droprate=0.5, pretrained=True,
       feat_dim=2048, filter_nans=False):
     super(PoseNet, self).__init__()
-    self.dropout = nn.Dropout(p = droprate)
+    self.droprate = droprate
+    self.dropout = nn.Dropout(p=self.droprate)
     # replace the last FC layer in feature extractor
     self.feature_extractor = feature_extractor
     self.feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
