@@ -61,6 +61,16 @@ def safe_collate(batch):
   batch = filter(lambda x: x is not None, batch)
   return default_collate(batch)
 
+def seed_worker(worker_id):
+    """
+    worker_init_fn function for DataLoader that perserve reproducibility
+    """
+    worker_seed = torch.initial_seed() % 2**32
+    import numpy
+    import random
+    numpy.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 class Trainer(object):
   def __init__(self, model, optimizer, train_criterion, config_file, experiment,
       train_dataset, val_dataset, device, checkpoint_file=None,
@@ -180,12 +190,12 @@ class Trainer(object):
     self.train_loader = torch.utils.data.DataLoader(train_dataset,
       batch_size=self.config['batch_size'], shuffle=self.config['shuffle'],
       num_workers=self.config['num_workers'], pin_memory=True,
-      collate_fn=safe_collate)
+      collate_fn=safe_collate, worker_init_fn=seed_worker)
     if self.config['do_val']:
       self.val_loader = torch.utils.data.DataLoader(val_dataset,
         batch_size=self.config['batch_size'], shuffle=self.config['shuffle'],
         num_workers=self.config['num_workers'], pin_memory=True,
-        collate_fn=safe_collate)
+        collate_fn=safe_collate, worker_init_fn=seed_worker)
     else:
       self.val_loader = None
 

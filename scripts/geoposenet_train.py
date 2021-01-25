@@ -4,7 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
  
 """
-Main training script for MapNet
+Main training script for GeoMapNet
 """
 import set_paths
 from common.train import Trainer
@@ -21,6 +21,8 @@ import json
 import torch
 from torch import nn
 from torchvision import transforms, models
+import random
+
 
 parser = argparse.ArgumentParser(description='Training script for PoseNet and'
                                              'MapNet variants')
@@ -72,8 +74,18 @@ if args.model.find('++') >= 0:
 section = settings['training']
 seed = section.getint('seed')
 
+# perseve reproducibility
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+np.random.seed(seed)  # Numpy module.
+random.seed(seed)  # Python random module.
+torch.manual_seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
 # model
-feature_extractor = models.resnet34(pretrained=True)
+feature_extractor = models.resnet50(pretrained=True)
 posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True,
                   filter_nans=(args.model=='mapnet++'))
 if args.model == 'geoposenet':
@@ -121,6 +133,7 @@ stats_file = osp.join(data_dir, args.scene, 'stats.txt')
 stats = np.loadtxt(stats_file)
 crop_size_file = osp.join(data_dir, 'crop_size.txt')
 crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
+
 # transformers
 tforms = [transforms.Resize(256)]
 if color_jitter > 0:

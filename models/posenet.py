@@ -66,7 +66,7 @@ class PoseNet(nn.Module):
     x = self.feature_extractor(x)
     x = F.relu(x)
     if self.droprate > 0:
-      x = F.dropout(x, p=self.droprate)
+      x = nn.dropout(x, p=self.droprate)
 
     xyz  = self.fc_xyz(x)
     wpqr = self.fc_wpqr(x)

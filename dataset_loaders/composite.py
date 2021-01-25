@@ -181,7 +181,7 @@ def main():
   skip = 10
    # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
-  num_workers = 6
+  num_workers = 5
   transform = transforms.Compose([
     transforms.Resize(256),
     # transforms.CenterCrop(224),
