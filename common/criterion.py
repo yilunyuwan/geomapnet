@@ -125,7 +125,7 @@ class GeoPoseNetCriterion(nn.Module):
     ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=255, size_average=True))
     # total loss
     loss = abs_loss + 0.15 * reconstruction_loss + 0.85* ms_ssim_loss
-    return loss
+    return loss, abs_loss, reconstruction_loss, ms_ssim_loss
 
 class MapNetCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,
@@ -258,3 +258,92 @@ class MapNetOnlineCriterion(nn.Module):
     # total loss
     loss = abs_loss + vo_loss
     return loss
+
+def main():
+  """
+  print every loss term
+  """
+
+  from torch.utils import data
+  from torchvision import transforms, models
+  from optimizer import Optimizer
+  from torch.autograd import Variable
+
+  import sys
+  sys.path.insert(0, '../')
+  from dataset_loaders.composite import MF
+  from models.posenet import PoseNet, MapNet
+
+  dataset = '7Scenes'
+  data_path = '../data/deepslam_data/7Scenes'
+  seq = 'chess'
+  steps = 3
+  skip = 5
+  # mode = 2: rgb and depth; 1: only depth; 0: only rgb
+  mode = 2
+  num_workers = 5
+  transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.ToTensor(),
+
+  ])
+  depth_transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.ToTensor(),
+	transforms.Lambda(lambda x: x.float())
+  ])
+  target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
+  kwargs = dict(scene=seq, data_path=data_path, transform=transform,
+                steps=steps, skip=skip)
+
+  dset = MF(dataset=dataset, train=True, target_transform=target_transform,
+            depth_transform=depth_transform, mode=mode, **kwargs)
+  print 'Loaded 7Scenes sequence {:s}, length = {:d}'.format(seq,
+    len(dset))
+  
+  data_loader = data.DataLoader(dset, batch_size=5, shuffle=True,
+    num_workers=num_workers)
+
+  lr = 1e-4
+  opt_method = 'adam'
+  weight_decay = 0.0005
+  dropout = 0.5
+  criterion = GeoPoseNetCriterion()
+  criterion.cuda()
+  feature_extractor = models.resnet50(pretrained=True)
+  posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True)
+  model = MapNet(mapnet=posenet)
+  model.train()
+  model.cuda()
+  param_list = [{'params': model.parameters()}]
+  optimizer = Optimizer(params=param_list, method=opt_method, base_lr=lr,
+  weight_decay=weight_decay)
+
+  batch_count = 0
+  N = 2
+  for (data, target) in data_loader:
+    # data: {'c': B x steps x 3 x H x W, 'd': B x steps x 1 x H x W}
+    # target: B x steps x 6 translation + log q
+    print 'Minibatch {:d}'.format(batch_count)
+    color_var = Variable(data['c'], requires_grad=False).cuda(async=True)
+    depth_var = Variable(data['d'], requires_grad=False).cuda(async=True)
+
+    with torch.set_grad_enabled(True):
+      output = model(color_var)
+
+    target_var = Variable(target, requires_grad=False).cuda(async=True)
+    with torch.set_grad_enabled(True):
+      loss, abs_loss, reconstruction_loss, ms_ssim_loss = criterion(output, target_var, color_var, depth_var)
+
+    optimizer.learner.zero_grad()
+    loss.backward()
+    optimizer.learner.step()
+
+    print loss.item(), abs_loss.item(), reconstruction_loss.item(), ms_ssim_loss.item()
+
+    batch_count += 1
+    if batch_count >= N:
+      break
+
+if __name__ == '__main__':
+    main()

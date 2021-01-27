@@ -434,8 +434,8 @@ def main():
     a = 1.0
     for i in valid_points.size():
         a *= i
-    n = torch.sum(valid_points == 0).float()
-    print a, a-n, (a-n)/a*100
+    n = torch.sum(valid_points == True).float()
+    print a, n, n/a*100
 
     lb = make_grid(projected_imgs * valid_points.float(), nrow=mid+1, padding=25)
     # lb = make_grid(src_imgs, nrow=mid+1, padding=25)
