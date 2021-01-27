@@ -54,6 +54,7 @@ optim_config = {k: json.loads(v) for k,v in section.items() if k != 'opt'}
 opt_method = section['opt']
 lr = optim_config.pop('lr')
 weight_decay = optim_config.pop('weight_decay')
+power = optim_config.pop('power')
 
 section = settings['hyperparameters']
 dropout = section.getfloat('dropout')
@@ -70,9 +71,14 @@ if args.model.find('mapnet') >= 0 or args.model.find('geoposenet') >= 0:
 if args.model.find('++') >= 0:
   vo_lib = section.get('vo_lib', 'orbslam')
   print 'Using {:s} VO'.format(vo_lib)
+if args.model.find('geoposenet') >= 0:
+  ld = section.getfloat('ld')
+  lp = section.getfloat('lp')
+  ls = section.getfloat('ls')
 
 section = settings['training']
 seed = section.getint('seed')
+max_epoch = section.getint('n_epochs')
 
 # perseve reproducibility
 torch.manual_seed(seed)
@@ -99,7 +105,7 @@ else:
 
 # loss function
 if args.model == 'geoposenet':
-  train_criterion = GeoPoseNetCriterion(sax=sax, saq=saq, learn_beta=args.learn_beta)
+  train_criterion = GeoPoseNetCriterion(sax=sax, saq=saq, learn_beta=args.learn_beta, ld=ld, lp=lp, ls=ls)
   val_criterion = GeoPoseNetCriterion()
 elif args.model == 'posenet':
   train_criterion = PoseNetCriterion(sax=sax, saq=saq, learn_beta=args.learn_beta)
@@ -118,7 +124,14 @@ else:
   raise NotImplementedError
 
 # optimizer
-param_list = [{'params': model.parameters()}]
+# param_list = [{'params': model.parameters()}]
+fc_ids = list(map(id, model.mapnet.feature_extractor.fc.parameters()))
+fc_ids.extend(list(map(id, model.mapnet.fc_xyz.parameters())))
+fc_ids.extend(list(map(id, model.mapnet.fc_wpqr.parameters())))
+fc_params = filter(lambda p: id(p) in fc_ids, model.parameters()) 
+block_params = filter(lambda p: id(p) not in fc_ids, model.parameters()) 
+param_list = [{'params': fc_params},
+              {'params': block_params, 'lr': 4 * lr }]
 if args.learn_beta and hasattr(train_criterion, 'sax') and \
     hasattr(train_criterion, 'saq'):
   param_list.append({'params': [train_criterion.sax, train_criterion.saq]})
@@ -126,7 +139,7 @@ if args.learn_gamma and hasattr(train_criterion, 'srx') and \
     hasattr(train_criterion, 'srq'):
   param_list.append({'params': [train_criterion.srx, train_criterion.srq]})
 optimizer = Optimizer(params=param_list, method=opt_method, base_lr=lr,
-  weight_decay=weight_decay, **optim_config)
+  weight_decay=weight_decay, power=power, max_epoch=max_epoch, **optim_config)
 
 data_dir = osp.join('..', 'data', args.dataset)
 stats_file = osp.join(data_dir, args.scene, 'stats.txt')

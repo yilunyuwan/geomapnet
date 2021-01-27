@@ -275,7 +275,10 @@ class Trainer(object):
           format(epoch, self.experiment)
 
       # ADJUST LR
-      lr = self.optimizer.adjust_lr(epoch)
+      if (geopose):
+        lr = self.optimizer.poly_adjust_lr(epoch)
+      else:
+        lr = self.optimizer.adjust_lr(epoch)
       if self.config['log_visdom']:
         self.vis.updateTrace(X=np.asarray([epoch]), Y=np.asarray([np.log10(lr)]),
           win=self.lr_win, name='learning_rate', append=True, env=self.vis_env)
@@ -387,7 +390,6 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
       loss, abs_loss, reconstruction_loss, ssim_loss = criterion(output, target_var, color_var, depth_var)
 
     if train:
-      # SGD step
       optim.learner.zero_grad()
       loss.backward()
       if max_grad_norm > 0.0:

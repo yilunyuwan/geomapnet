@@ -58,7 +58,7 @@ modified from MapNetCriterion
 """
 class GeoPoseNetCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,
-               saq=0.0, srx=0, srq=0.0, learn_beta=False, learn_gamma=False):
+               saq=0.0, srx=0, srq=0.0, learn_beta=False, learn_gamma=False, ld=1, lp=0.01, ls=0.1):
     """
     Implements L_D from eq. 2 in the paper
     :param t_loss_fn: loss function to be used for translation
@@ -75,7 +75,9 @@ class GeoPoseNetCriterion(nn.Module):
     self.q_loss_fn = q_loss_fn
     self.sax = nn.Parameter(torch.Tensor([sax]), requires_grad=learn_beta)
     self.saq = nn.Parameter(torch.Tensor([saq]), requires_grad=learn_beta)
-
+    self.ld = ld
+    self.lp = lp
+    self.ls = ls
     """ without consideration of relative pose error for the time being
     self.srx = nn.Parameter(torch.Tensor([srx]), requires_grad=learn_gamma)
     self.srq = nn.Parameter(torch.Tensor([srq]), requires_grad=learn_gamma)
@@ -92,6 +94,7 @@ class GeoPoseNetCriterion(nn.Module):
 
     # absolute pose loss
     s = pred.size()
+    '''
     abs_loss =\
       torch.exp(-self.sax) * self.t_loss_fn(pred.view(-1, *s[2:])[:, :3],
                                             targ.view(-1, *s[2:])[:, :3]) + \
@@ -99,6 +102,9 @@ class GeoPoseNetCriterion(nn.Module):
       torch.exp(-self.saq) * self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
                                             targ.view(-1, *s[2:])[:, 3:]) + \
       self.saq
+    '''
+    abs_loss = self.t_loss_fn(pred.view(-1, *s[2:])[:, :3], targ.view(-1, *s[2:])[:, :3]) + 3 * self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
+                                            targ.view(-1, *s[2:])[:, 3:])
 
     # get the photometric reconstruction
     # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
@@ -124,7 +130,7 @@ class GeoPoseNetCriterion(nn.Module):
     # MS-SSIM loss
     ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=255, size_average=True))
     # total loss
-    loss = abs_loss + 0.15 * reconstruction_loss + 0.85* ms_ssim_loss
+    loss = self.ld * abs_loss + self.lp * reconstruction_loss + self.ls * ms_ssim_loss
     return loss, abs_loss, reconstruction_loss, ms_ssim_loss
 
 class MapNetCriterion(nn.Module):
