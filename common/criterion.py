@@ -9,6 +9,7 @@ in the paper
 """
 
 from pose_utils import calc_vo_logq2q
+import pose_utils
 from reconstruction_utils import reconstruction
 import torch
 from torch import nn
@@ -47,11 +48,14 @@ class PoseNetCriterion(nn.Module):
     :param targ: N x 7
     :return: 
     """
-    loss = torch.exp(-self.sax) * self.t_loss_fn(pred[:, :3], targ[:, :3]) + \
+    abs_t_loss = self.t_loss_fn(pred[:, :3], targ[:, :3])
+    abs_q_loss = self.q_loss_fn(pred[:, 3:], targ[:, 3:])
+
+    loss = torch.exp(-self.sax) * abs_t_loss + \
       self.sax +\
-     torch.exp(-self.saq) * self.q_loss_fn(pred[:, 3:], targ[:, 3:]) +\
+     torch.exp(-self.saq) * abs_q_loss +\
       self.saq
-    return loss
+    return loss, abs_t_loss, abs_q_loss, 0, 0
 
 """
 modified from MapNetCriterion
@@ -103,9 +107,12 @@ class GeoPoseNetCriterion(nn.Module):
                                             targ.view(-1, *s[2:])[:, 3:]) + \
       self.saq
     '''
-    abs_loss = self.t_loss_fn(pred.view(-1, *s[2:])[:, :3], targ.view(-1, *s[2:])[:, :3]) + 3 * self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
+    t_loss = self.t_loss_fn(pred.view(-1, *s[2:])[:, :3], targ.view(-1, *s[2:])[:, :3])
+    q_loss = self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
                                             targ.view(-1, *s[2:])[:, 3:])
-
+    abs_loss =  t_loss - self.saq * q_loss
+    reconstruction_loss, ms_ssim_loss = torch.Tensor([0]).type_as(t_loss), torch.Tensor([0]).type_as(t_loss)
+    '''
     # get the photometric reconstruction
     # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
     mid = s[1] / 2
@@ -129,9 +136,10 @@ class GeoPoseNetCriterion(nn.Module):
 
     # MS-SSIM loss
     ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=255, size_average=True))
+    '''
     # total loss
     loss = self.ld * abs_loss + self.lp * reconstruction_loss + self.ls * ms_ssim_loss
-    return loss, abs_loss, reconstruction_loss, ms_ssim_loss
+    return loss, t_loss, q_loss, reconstruction_loss, ms_ssim_loss
 
 class MapNetCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,
@@ -164,12 +172,15 @@ class MapNetCriterion(nn.Module):
 
     # absolute pose loss
     s = pred.size()
+    abs_t_loss = self.t_loss_fn(pred.view(-1, *s[2:])[:, :3], 
+                            targ.view(-1, *s[2:])[:, :3])
+    abs_q_loss = self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
+                            targ.view(-1, *s[2:])[:, 3:])
+                                            
     abs_loss =\
-      torch.exp(-self.sax) * self.t_loss_fn(pred.view(-1, *s[2:])[:, :3],
-                                            targ.view(-1, *s[2:])[:, :3]) + \
+      torch.exp(-self.sax) * abs_t_loss + \
       self.sax + \
-      torch.exp(-self.saq) * self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
-                                            targ.view(-1, *s[2:])[:, 3:]) + \
+      torch.exp(-self.saq) * abs_q_loss + \
       self.saq
 
     # get the VOs
@@ -178,17 +189,19 @@ class MapNetCriterion(nn.Module):
 
     # VO loss
     s = pred_vos.size()
+    vo_t_loss = self.t_loss_fn(pred_vos.view(-1, *s[2:])[:, :3],
+                              targ_vos.view(-1, *s[2:])[:, :3])
+    vo_q_loss = self.q_loss_fn(pred_vos.view(-1, *s[2:])[:, 3:],
+                              targ_vos.view(-1, *s[2:])[:, 3:])
     vo_loss = \
-      torch.exp(-self.srx) * self.t_loss_fn(pred_vos.view(-1, *s[2:])[:, :3],
-                                            targ_vos.view(-1, *s[2:])[:, :3]) + \
+      torch.exp(-self.srx) * vo_t_loss + \
       self.srx + \
-      torch.exp(-self.srq) * self.q_loss_fn(pred_vos.view(-1, *s[2:])[:, 3:],
-                                            targ_vos.view(-1, *s[2:])[:, 3:]) + \
+      torch.exp(-self.srq) * vo_q_loss  + \
       self.srq
 
     # total loss
     loss = abs_loss + vo_loss
-    return loss
+    return loss, abs_t_loss, abs_q_loss, vo_t_loss, vo_q_loss
 
 class MapNetOnlineCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,

@@ -9,7 +9,7 @@ class Optimizer:
   """
   Wrapper around torch.optim + learning rate
   """
-  def __init__(self, params, method, base_lr, weight_decay, power, max_epoch, **kwargs):
+  def __init__(self, params, method, base_lr, weight_decay, power=None, max_epoch=None, **kwargs):
     self.method = method
     self.base_lr = base_lr
     self.power = power

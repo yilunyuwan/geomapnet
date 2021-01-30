@@ -72,6 +72,15 @@ if args.model.find('++') >= 0:
 section = settings['training']
 seed = section.getint('seed')
 
+# perseve reproducibility
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+np.random.seed(seed)  # Numpy module.
+torch.manual_seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
 # model
 feature_extractor = models.resnet34(pretrained=True)
 posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True,
@@ -108,8 +117,7 @@ if args.learn_beta and hasattr(train_criterion, 'sax') and \
 if args.learn_gamma and hasattr(train_criterion, 'srx') and \
     hasattr(train_criterion, 'srq'):
   param_list.append({'params': [train_criterion.srx, train_criterion.srq]})
-optimizer = Optimizer(params=param_list, method=opt_method, base_lr=lr,
-  weight_decay=weight_decay, **optim_config)
+optimizer = Optimizer(params=param_list, method=opt_method, base_lr=lr,weight_decay=weight_decay, **optim_config)
 
 data_dir = osp.join('..', 'data', args.dataset)
 stats_file = osp.join(data_dir, args.scene, 'stats.txt')
