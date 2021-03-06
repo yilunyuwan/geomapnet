@@ -235,7 +235,7 @@ class Trainer(object):
           kwargs = dict(target=target, criterion=self.val_criterion,
             optim=self.optimizer, train=False)
           if geopose:
-            loss, t_loss, q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], **kwargs)
+            loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], **kwargs)
           elif lstm:
             loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
           else:
@@ -254,13 +254,15 @@ class Trainer(object):
                     'Total Loss {:f}\t' \
                     'T Loss {:f}\t' \
                     'Q Loss {:f}\t' \
+                    'VO T Loss {:f}\t' \
+                    'VO Q Loss {:f}\t' \
                     'Reconstruction Loss {:f}\t' \
                     'SSIM Loss {:f}\t' \
                     'sax {:f}\t' \
                     'saq {:f}' \
                 .format(self.experiment, epoch, batch_idx, len(self.train_loader)-1,
                 train_data_time.val, train_data_time.avg, train_batch_time.val,
-                train_batch_time.avg, loss, t_loss, q_loss, reconstruction_loss, ssim_loss, self.train_criterion.sax.item(), self.train_criterion.saq.item())
+                train_batch_time.avg, loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss, self.train_criterion.sax.item(), self.train_criterion.saq.item())
             else:
               print 'Val {:s}: Epoch {:d}\t' \
                     'Batch {:d}/{:d}\t' \
@@ -291,10 +293,11 @@ class Trainer(object):
           format(epoch, self.experiment)
 
       # ADJUST LR
-      if (geopose):
-        lr = self.optimizer.poly_adjust_lr(epoch)
-      else:
-        lr = self.optimizer.adjust_lr(epoch)
+      # if (geopose):
+      #   lr = self.optimizer.poly_adjust_lr(epoch)
+      # else:
+      # lr = self.optimizer.adjust_lr(epoch)
+      lr = self.optimizer.adjust_lr(epoch)
       if self.config['log_visdom']:
         self.vis.updateTrace(X=np.asarray([epoch]), Y=np.asarray([np.log10(lr)]),
           win=self.lr_win, name='learning_rate', append=True, env=self.vis_env)
@@ -311,7 +314,7 @@ class Trainer(object):
           optim=self.optimizer, train=True,
           max_grad_norm=self.config['max_grad_norm'])
         if geopose:
-          loss, t_loss, q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], **kwargs)
+          loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], **kwargs)
         elif lstm:
           loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
         else:
@@ -331,6 +334,8 @@ class Trainer(object):
                   'Total Loss {:f}\t' \
                   'T Loss {:f}\t' \
                   'Q Loss {:f}\t' \
+                  'VO T Loss {:f}\t' \
+                  'VO Q Loss {:f}\t' \
                   'Reconstruction Loss {:f}\t' \
                   'SSIM Loss {:f}\t' \
                   'sax {:f}\t' \
@@ -338,7 +343,7 @@ class Trainer(object):
                   'lr: {:f}'.\
               format(self.experiment, epoch, batch_idx, len(self.train_loader)-1,
               train_data_time.val, train_data_time.avg, train_batch_time.val,
-              train_batch_time.avg, loss, t_loss, q_loss, reconstruction_loss, ssim_loss, self.train_criterion.sax.item(), self.train_criterion.saq.item(), lr)
+              train_batch_time.avg, loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss, self.train_criterion.sax.item(), self.train_criterion.saq.item(), lr)
           else:
             print 'Train {:s}: Epoch {:d}\t' \
                   'Batch {:d}/{:d}\t' \
@@ -414,7 +419,7 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
 
     target_var = Variable(target, requires_grad=False)
     with torch.set_grad_enabled(train):
-      loss, t_loss, q_loss, reconstruction_loss, ssim_loss = criterion(output, target_var, color_var, depth_var)
+      loss, t_loss, q_loss, vo_t_loss, vo_q_loss,reconstruction_loss, ssim_loss = criterion(output, target_var, color_var, depth_var)
 
     if train:
       optim.learner.zero_grad()
@@ -423,7 +428,7 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
         torch.nn.utils.clip_grad_norm(model.parameters(), max_grad_norm)
       optim.learner.step()
 
-    return loss.item(), t_loss.item(), q_loss.item(), reconstruction_loss.item(), ssim_loss.item()
+    return loss.item(), t_loss.item(), q_loss.item(), vo_t_loss.item(),vo_q_loss.item(), reconstruction_loss.item(), ssim_loss.item()
   else:
     return 0, 0, 0, 0
 

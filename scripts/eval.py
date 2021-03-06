@@ -231,7 +231,8 @@ else:
   ax.view_init(azim=119, elev=13)
 
 if DISPLAY:
-  plt.show(block=True)
+  plt.show(block=False)
+  # plt.show(block=True)
 
 if args.output_dir is not None:
   model_name = args.model

@@ -82,6 +82,7 @@ class GeoPoseNetCriterion(nn.Module):
     self.ld = ld
     self.lp = lp
     self.ls = ls
+    self.srx = nn.Parameter(torch.Tensor([srx]), requires_grad=learn_gamma)
     """ without consideration of relative pose error for the time being
     self.srx = nn.Parameter(torch.Tensor([srx]), requires_grad=learn_gamma)
     self.srq = nn.Parameter(torch.Tensor([srq]), requires_grad=learn_gamma)
@@ -110,9 +111,27 @@ class GeoPoseNetCriterion(nn.Module):
     t_loss = self.t_loss_fn(pred.view(-1, *s[2:])[:, :3], targ.view(-1, *s[2:])[:, :3])
     q_loss = self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
                                             targ.view(-1, *s[2:])[:, 3:])
-    abs_loss =  t_loss - self.saq * q_loss
+    abs_loss = t_loss + 3 * q_loss 
+    '''
+    abs_loss = torch.exp(-self.sax) * t_loss + torch.exp(-self.saq) * q_loss + self.sax + self.saq
     reconstruction_loss, ms_ssim_loss = torch.Tensor([0]).type_as(t_loss), torch.Tensor([0]).type_as(t_loss)
     '''
+
+    # get the VOs
+    pred_vos = pose_utils.calc_vos_simple(pred)
+    targ_vos = pose_utils.calc_vos_simple(targ)
+
+    # VO loss
+    vo_t_loss = self.t_loss_fn(pred_vos.view(-1, *s[2:])[:, :3],
+                              targ_vos.view(-1, *s[2:])[:, :3])
+    vo_q_loss = self.q_loss_fn(pred_vos.view(-1, *s[2:])[:, 3:],
+                              targ_vos.view(-1, *s[2:])[:, 3:])
+
+    ms_ssim_loss = torch.Tensor([0]).type_as(t_loss)
+
+    
+    vo_loss = vo_t_loss + 3 * vo_q_loss 
+
     # get the photometric reconstruction
     # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
     mid = s[1] / 2
@@ -132,14 +151,19 @@ class GeoPoseNetCriterion(nn.Module):
     
     projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
     diff = (projected_imgs - tgt_imgs) * valid_points.float()
-    reconstruction_loss = diff.abs().mean()
-
+    reconstruction_loss =  diff.abs().mean()
+    
+    '''
     # MS-SSIM loss
-    ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=255, size_average=True))
+    ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=1, size_average=True))
     '''
     # total loss
+    '''
     loss = self.ld * abs_loss + self.lp * reconstruction_loss + self.ls * ms_ssim_loss
-    return loss, t_loss, q_loss, reconstruction_loss, ms_ssim_loss
+    '''
+    loss = torch.exp(-self.sax) * (abs_loss + vo_loss) + torch.exp(-self.saq) * reconstruction_loss + self.sax + self.saq
+    
+    return loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ms_ssim_loss
 
 class MapNetCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,
@@ -176,13 +200,17 @@ class MapNetCriterion(nn.Module):
                             targ.view(-1, *s[2:])[:, :3])
     abs_q_loss = self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
                             targ.view(-1, *s[2:])[:, 3:])
-                                            
+    '''                                        
     abs_loss =\
       torch.exp(-self.sax) * abs_t_loss + \
       self.sax + \
       torch.exp(-self.saq) * abs_q_loss + \
       self.saq
-
+    '''
+    abs_loss = abs_t_loss + 3 * abs_q_loss
+    '''
+    vo_t_loss, vo_q_loss, vo_loss = torch.Tensor([0]).type_as(abs_t_loss), torch.Tensor([0]).type_as(abs_t_loss), torch.Tensor([0]).type_as(abs_t_loss)
+    '''
     # get the VOs
     pred_vos = pose_utils.calc_vos_simple(pred)
     targ_vos = pose_utils.calc_vos_simple(targ)
@@ -193,12 +221,14 @@ class MapNetCriterion(nn.Module):
                               targ_vos.view(-1, *s[2:])[:, :3])
     vo_q_loss = self.q_loss_fn(pred_vos.view(-1, *s[2:])[:, 3:],
                               targ_vos.view(-1, *s[2:])[:, 3:])
+    '''
     vo_loss = \
       torch.exp(-self.srx) * vo_t_loss + \
       self.srx + \
       torch.exp(-self.srq) * vo_q_loss  + \
       self.srq
-
+    '''
+    vo_loss = vo_t_loss + 3 * vo_q_loss
     # total loss
     loss = abs_loss + vo_loss
     return loss, abs_t_loss, abs_q_loss, vo_t_loss, vo_q_loss

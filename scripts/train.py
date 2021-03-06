@@ -124,6 +124,7 @@ stats_file = osp.join(data_dir, args.scene, 'stats.txt')
 stats = np.loadtxt(stats_file)
 crop_size_file = osp.join(data_dir, 'crop_size.txt')
 crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
+
 # transformers
 tforms = [transforms.Resize(256)]
 if color_jitter > 0:

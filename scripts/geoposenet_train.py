@@ -54,7 +54,8 @@ optim_config = {k: json.loads(v) for k,v in section.items() if k != 'opt'}
 opt_method = section['opt']
 lr = optim_config.pop('lr')
 weight_decay = optim_config.pop('weight_decay')
-power = optim_config.pop('power')
+# power = optim_config.pop('power')
+power = None
 
 section = settings['hyperparameters']
 dropout = section.getfloat('dropout')
@@ -91,7 +92,7 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
 # model
-feature_extractor = models.resnet50(pretrained=True)
+feature_extractor = models.resnet34(pretrained=True)
 posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True,
                   filter_nans=(args.model=='mapnet++'))
 if args.model == 'geoposenet':
@@ -124,14 +125,15 @@ else:
   raise NotImplementedError
 
 # optimizer
-# param_list = [{'params': model.parameters()}]
-fc_ids = list(map(id, model.mapnet.feature_extractor.fc.parameters()))
-fc_ids.extend(list(map(id, model.mapnet.fc_xyz.parameters())))
-fc_ids.extend(list(map(id, model.mapnet.fc_wpqr.parameters())))
-fc_params = filter(lambda p: id(p) in fc_ids, model.parameters()) 
-block_params = filter(lambda p: id(p) not in fc_ids, model.parameters()) 
-param_list = [{'params': fc_params},
-              {'params': block_params, 'lr': 4 * lr }]
+param_list = [{'params': model.parameters()}]
+# for poly decay learning rate adjustment policy
+# fc_ids = list(map(id, model.mapnet.feature_extractor.fc.parameters()))
+# fc_ids.extend(list(map(id, model.mapnet.fc_xyz.parameters())))
+# fc_ids.extend(list(map(id, model.mapnet.fc_wpqr.parameters())))
+# fc_params = filter(lambda p: id(p) in fc_ids, model.parameters()) 
+# block_params = filter(lambda p: id(p) not in fc_ids, model.parameters()) 
+# param_list = [{'params': fc_params},
+#               {'params': block_params, 'lr': 4 * lr }]
 if args.learn_beta and hasattr(train_criterion, 'sax') and \
     hasattr(train_criterion, 'saq'):
   param_list.append({'params': [train_criterion.sax, train_criterion.saq]})
