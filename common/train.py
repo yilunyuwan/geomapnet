@@ -334,16 +334,23 @@ class Trainer(object):
                   'Total Loss {:f}\t' \
                   'T Loss {:f}\t' \
                   'Q Loss {:f}\t' \
-                  'VO T Loss {:f}\t' \
-                  'VO Q Loss {:f}\t' \
-                  'Reconstruction Loss {:f}\t' \
-                  'SSIM Loss {:f}\t' \
                   'sax {:f}\t' \
                   'saq {:f}\t' \
                   'lr: {:f}'.\
-              format(self.experiment, epoch, batch_idx, len(self.train_loader)-1,
-              train_data_time.val, train_data_time.avg, train_batch_time.val,
-              train_batch_time.avg, loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss, self.train_criterion.sax.item(), self.train_criterion.saq.item(), lr)
+              format(self.experiment, epoch, batch_idx, len(self.train_loader)-1, train_data_time.val, train_data_time.avg, train_batch_time.val, train_batch_time.avg, 
+              loss, t_loss, q_loss, self.train_criterion.sax.item(), self.train_criterion.saq.item(), lr)
+            if (hasattr(self.train_criterion, 'srx') and hasattr(self.train_criterion, 'srq')):
+              print 'VO T Loss {:f}\t' \
+                    'VO Q Loss {:f}\t' \
+                    'srx {:f}\t' \
+                    'srq {:f}'. \
+                format(vo_t_loss, vo_q_loss, self.train_criterion.srx.item(), self.train_criterion.srq.item())  
+            if (hasattr(self.train_criterion, 'slp') and hasattr(self.train_criterion, 'sls')):
+              print 'Reconstruction Loss {:f}\t' \
+                    'SSIM Loss {:f}\t' \
+                    'slp {:f}\t' \
+                    'sls {:f}'. \
+                format(reconstruction_loss, ssim_loss, self.train_criterion.slp.item(), self.train_criterion.sls.item())
           else:
             print 'Train {:s}: Epoch {:d}\t' \
                   'Batch {:d}/{:d}\t' \

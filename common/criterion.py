@@ -62,7 +62,8 @@ modified from MapNetCriterion
 """
 class GeoPoseNetCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,
-               saq=0.0, srx=0, srq=0.0, learn_beta=False, learn_gamma=False, ld=1, lp=0.01, ls=0.1):
+               saq=-3.0, srx=0.0, srq=-3.0, learn_beta=False, learn_gamma=False, learn_recon=False,slp=0.0, sls=0.0):
+              #  ld=1, lp=0.01, ls=0.1):
     """
     Implements L_D from eq. 2 in the paper
     :param t_loss_fn: loss function to be used for translation
@@ -79,12 +80,14 @@ class GeoPoseNetCriterion(nn.Module):
     self.q_loss_fn = q_loss_fn
     self.sax = nn.Parameter(torch.Tensor([sax]), requires_grad=learn_beta)
     self.saq = nn.Parameter(torch.Tensor([saq]), requires_grad=learn_beta)
-    self.ld = ld
-    self.lp = lp
-    self.ls = ls
-
     self.srx = nn.Parameter(torch.Tensor([srx]), requires_grad=learn_gamma)
     self.srq = nn.Parameter(torch.Tensor([srq]), requires_grad=learn_gamma)
+    self.slp = nn.Parameter(torch.Tensor([slp]), requires_grad=learn_recon)
+    self.sls = nn.Parameter(torch.Tensor([sls]), requires_grad=learn_recon)
+    # self.ld = ld
+    # self.lp = lp
+    # self.ls = ls
+
 
 
   def forward(self, pred, targ, color, depth):
@@ -98,23 +101,17 @@ class GeoPoseNetCriterion(nn.Module):
 
     # absolute pose loss
     s = pred.size()
-    '''
-    abs_loss =\
-      torch.exp(-self.sax) * self.t_loss_fn(pred.view(-1, *s[2:])[:, :3],
-                                            targ.view(-1, *s[2:])[:, :3]) + \
-      self.sax + \
-      torch.exp(-self.saq) * self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
-                                            targ.view(-1, *s[2:])[:, 3:]) + \
-      self.saq
-    '''
-    t_loss = self.t_loss_fn(pred.view(-1, *s[2:])[:, :3], targ.view(-1, *s[2:])[:, :3])
+
+    t_loss = self.t_loss_fn(pred.view(-1, *s[2:])[:, :3], 
+                            targ.view(-1, *s[2:])[:, :3])
     q_loss = self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
-                                            targ.view(-1, *s[2:])[:, 3:])
-    abs_loss = t_loss + 3 * q_loss 
-    '''
-    abs_loss = torch.exp(-self.sax) * t_loss + torch.exp(-self.saq) * q_loss + self.sax + self.saq
-    reconstruction_loss, ms_ssim_loss = torch.Tensor([0]).type_as(t_loss), torch.Tensor([0]).type_as(t_loss)
-    '''
+                            targ.view(-1, *s[2:])[:, 3:])
+
+    # abs_loss = t_loss + 3 * q_loss 
+
+    abs_loss = torch.exp(-self.sax) * t_loss + self.sax + \
+               torch.exp(-self.saq) * q_loss  + self.saq
+
 
     # get the VOs
     pred_vos = pose_utils.calc_vos_simple(pred)
@@ -126,10 +123,12 @@ class GeoPoseNetCriterion(nn.Module):
     vo_q_loss = self.q_loss_fn(pred_vos.view(-1, *s[2:])[:, 3:],
                               targ_vos.view(-1, *s[2:])[:, 3:])
 
-    ms_ssim_loss = torch.Tensor([0]).type_as(t_loss)
-
+    vo_loss = torch.exp(-self.srx) * vo_t_loss + self.srx + \
+              torch.exp(-self.srq) * vo_q_loss + self.srq
+      
+    # vo_loss = vo_t_loss + 3 * vo_q_loss 
     
-    vo_loss = vo_t_loss + 3 * vo_q_loss 
+    # reconstruction_loss, ms_ssim_loss = torch.Tensor([0]).type_as(t_loss), torch.Tensor([0]).type_as(t_loss)
 
     # get the photometric reconstruction
     # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
@@ -144,6 +143,7 @@ class GeoPoseNetCriterion(nn.Module):
     tgt_pred = pred[:, mid:, ...].reshape(-1, *s[2:])
     src_targ = targ[:, :mid+1, ...].reshape(-1, *s[2:])
     tgt_targ = targ[:, mid:, ...].reshape(-1, *s[2:])
+
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
     pred_relative_poses = calc_vo_logq2q(src_pred, tgt_pred)
     targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
@@ -151,17 +151,19 @@ class GeoPoseNetCriterion(nn.Module):
     projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
     diff = (projected_imgs - tgt_imgs) * valid_points.float()
     reconstruction_loss =  diff.abs().mean()
+    lp_loss =  torch.exp(-self.slp) * diff.abs().mean() + self.slp
     
-    '''
     # MS-SSIM loss
     ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=1, size_average=True))
-    '''
+    ls_loss = torch.exp(-self.sls) * ms_ssim_loss + self.sls
+
     # total loss
     '''
     loss = self.ld * abs_loss + self.lp * reconstruction_loss + self.ls * ms_ssim_loss
-    '''
-    loss = torch.exp(-self.sax) * (abs_loss + vo_loss) + torch.exp(-self.saq) * reconstruction_loss + self.sax + self.saq
     
+    loss = torch.exp(-self.sax) * (abs_loss + vo_loss) + torch.exp(-self.saq) * reconstruction_loss + self.sax + self.saq
+    '''
+    loss = abs_loss + vo_loss + lp_loss + ls_loss
     return loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ms_ssim_loss
 
 class MapNetCriterion(nn.Module):

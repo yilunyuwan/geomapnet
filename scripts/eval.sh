@@ -1,0 +1,6 @@
+# python eval.py --dataset 7Scenes --scene $1 --model posenet --weights logs/7Scenes_$1_mapnet_mapnet_absvo_fix3/epoch_050.pth.tar --config_file configs/mapnet.ini --val   --output_dir ../results/ $2 $3
+# python eval.py --dataset 7Scenes --scene $1 --model posenet --weights logs/7Scenes_$1_mapnet_mapnet_absvo_fix3/epoch_100.pth.tar --config_file configs/mapnet.ini --val   --output_dir ../results/ $2 $3
+# python eval.py --dataset 7Scenes --scene $1 --model posenet --weights logs/7Scenes_$1_mapnet_mapnet_absvo_fix3/epoch_150.pth.tar --config_file configs/mapnet.ini --val   --output_dir ../results/ $2 $3
+# python eval.py --dataset 7Scenes --scene $1 --model posenet --weights logs/7Scenes_$1_mapnet_mapnet_absvo_fix3/epoch_200.pth.tar --config_file configs/mapnet.ini --val   --output_dir ../results/ $2 $3
+# python eval.py --dataset 7Scenes --scene $1 --model posenet --weights logs/7Scenes_$1_mapnet_mapnet_absvo_fix3/epoch_250.pth.tar --config_file configs/mapnet.ini --val   --output_dir ../results/ $2 $3
+python eval.py --dataset 7Scenes --scene $1 --model posenet --weights logs/7Scenes_$1_mapnet_mapnet_absvo_fix3/epoch_300.pth.tar --config_file configs/mapnet.ini --val   --output_dir ../results/ $2 $3

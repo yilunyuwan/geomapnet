@@ -40,6 +40,8 @@ parser.add_argument('--learn_beta', action='store_true',
   help='Learn the weight of absolute pose loss')
 parser.add_argument('--learn_gamma', action='store_true',
   help='Learn the weight of relative pose loss')
+parser.add_argument('--learn_recon', action='store_true',
+  help='Learn the weight of photometric loss and ssim loss')
 parser.add_argument('--resume_optim', action='store_true',
   help='Resume optimization (only effective if a checkpoint is given')
 parser.add_argument('--suffix', type=str, default='',
@@ -73,9 +75,11 @@ if args.model.find('++') >= 0:
   vo_lib = section.get('vo_lib', 'orbslam')
   print 'Using {:s} VO'.format(vo_lib)
 if args.model.find('geoposenet') >= 0:
-  ld = section.getfloat('ld')
-  lp = section.getfloat('lp')
-  ls = section.getfloat('ls')
+  slp = section.getfloat('slp')
+  sls = section.getfloat('sls')
+  # ld = section.getfloat('ld')
+  # lp = section.getfloat('lp')
+  # ls = section.getfloat('ls')
 
 section = settings['training']
 seed = section.getint('seed')
@@ -106,7 +110,7 @@ else:
 
 # loss function
 if args.model == 'geoposenet':
-  train_criterion = GeoPoseNetCriterion(sax=sax, saq=saq, learn_beta=args.learn_beta, ld=ld, lp=lp, ls=ls)
+  train_criterion = GeoPoseNetCriterion(sax=sax, saq=saq, srx=srx, srq=srq,slp=slp, sls=sls, learn_beta=args.learn_beta, learn_gamma=args.learn_gamma, learn_recon=args.learn_recon)#, ld=ld, lp=lp, ls=ls)
   val_criterion = GeoPoseNetCriterion()
 elif args.model == 'posenet':
   train_criterion = PoseNetCriterion(sax=sax, saq=saq, learn_beta=args.learn_beta)
@@ -140,6 +144,9 @@ if args.learn_beta and hasattr(train_criterion, 'sax') and \
 if args.learn_gamma and hasattr(train_criterion, 'srx') and \
     hasattr(train_criterion, 'srq'):
   param_list.append({'params': [train_criterion.srx, train_criterion.srq]})
+if args.learn_recon and hasattr(train_criterion, 'slp') and \
+    hasattr(train_criterion, 'sls'):
+  param_list.append({'params': [train_criterion.slp, train_criterion.sls]})
 optimizer = Optimizer(params=param_list, method=opt_method, base_lr=lr,
   weight_decay=weight_decay, power=power, max_epoch=max_epoch, **optim_config)
 
@@ -210,6 +217,8 @@ if args.learn_beta:
   experiment_name = '{:s}_learn_beta'.format(experiment_name)
 if args.learn_gamma:
   experiment_name = '{:s}_learn_gamma'.format(experiment_name)
+if args.learn_recon:
+  experiment_name = '{:s}_learn_recon'.format(experiment_name)
 experiment_name += args.suffix
 trainer = Trainer(model, optimizer, train_criterion, args.config_file,
                   experiment_name, train_set, val_set, device=args.device,
