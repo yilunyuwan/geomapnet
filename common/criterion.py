@@ -82,11 +82,10 @@ class GeoPoseNetCriterion(nn.Module):
     self.ld = ld
     self.lp = lp
     self.ls = ls
-    self.srx = nn.Parameter(torch.Tensor([srx]), requires_grad=learn_gamma)
-    """ without consideration of relative pose error for the time being
+
     self.srx = nn.Parameter(torch.Tensor([srx]), requires_grad=learn_gamma)
     self.srq = nn.Parameter(torch.Tensor([srq]), requires_grad=learn_gamma)
-    """
+
 
   def forward(self, pred, targ, color, depth):
     """
