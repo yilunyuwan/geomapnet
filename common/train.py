@@ -176,6 +176,12 @@ class Trainer(object):
         load_state_dict(self.model, checkpoint['model_state_dict'])
         if resume_optim:
           self.optimizer.learner.load_state_dict(checkpoint['optim_state_dict'])
+          # in order to solve RuntimeError: Expected object of type torch.FloatTensor but found type torch.cuda.FloatTensor for argument #4 'other'
+          for state in optimizer.learner.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.cuda()
+
           self.start_epoch = checkpoint['epoch']
           if checkpoint.has_key('criterion_state_dict'):
             c_state = checkpoint['criterion_state_dict']
