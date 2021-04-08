@@ -19,7 +19,8 @@ def _fspecial_gauss_1d(size, sigma):
     coords = torch.arange(size).to(dtype=torch.float)
     coords -= size // 2
 
-    g = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+    # g = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+    g = torch.ones(size)
     g /= g.sum()
 
     return g.unsqueeze(0).unsqueeze(0)
@@ -53,7 +54,7 @@ def gaussian_filter(input, win):
     return out
 
 
-def _ssim(X, Y, data_range, win, size_average=True, K=(0.01, 0.03)):
+def _ssim(X, Y, data_range, win, size_average=True, K=(0.01, 0.03), mask=None):
 
     r""" Calculate ssim index for X and Y
 
@@ -90,6 +91,13 @@ def _ssim(X, Y, data_range, win, size_average=True, K=(0.01, 0.03)):
     cs_map = (2 * sigma12 + C2) / (sigma1_sq + sigma2_sq + C2)  # set alpha=beta=gamma=1
     ssim_map = ((2 * mu1_mu2 + C1) / (mu1_sq + mu2_sq + C1)) * cs_map
 
+    if mask is not None:
+        _, _, th, tw = ssim_map.size()
+        _, _, sh, sw = mask.size()
+        dh, dw = (sh-th)/2, (sw-tw)/2
+        mask = mask[:, :, dh:dh+th, dw:dw+tw]
+        ssim_map = ssim_map * mask
+
     ssim_per_channel = torch.flatten(ssim_map, 2).mean(-1)
     cs = torch.flatten(cs_map, 2).mean(-1)
     return ssim_per_channel, cs
@@ -105,6 +113,7 @@ def ssim(
     win=None,
     K=(0.01, 0.03),
     nonnegative_ssim=False,
+    mask=None
 ):
     r""" interface of ssim
     Args:
@@ -144,7 +153,7 @@ def ssim(
         win = _fspecial_gauss_1d(win_size, win_sigma)
         win = win.repeat([X.shape[1]] + [1] * (len(X.shape) - 1))
 
-    ssim_per_channel, cs = _ssim(X, Y, data_range=data_range, win=win, size_average=False, K=K)
+    ssim_per_channel, cs = _ssim(X, Y, data_range=data_range, win=win, size_average=False, K=K, mask=mask)
     if nonnegative_ssim:
         ssim_per_channel = torch.relu(ssim_per_channel)
 

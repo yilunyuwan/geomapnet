@@ -284,7 +284,11 @@ def generate_warp_coords(tgt_depths, relative_poses, intrinsics=None):
         intrinsics = torch.tensor([[585, 0, 320],
                                     [0, 585, 240],
                                     [0, 0, 1]]).float()
+        downscale_u = 640.0 / w
+        downscale_v = 480.0 / h
+        intrinsics = torch.cat((intrinsics[0:1, :]/downscale_u, intrinsics[1:2, :]/downscale_v, intrinsics[2:, :]), dim=0)
         intrinsics_inverse = intrinsics.inverse()
+
     uv_coords = generate_uv1_coords(b, h, w) # [B, 3, H, W]
     cam_coords = torch.matmul(intrinsics_inverse, uv_coords.reshape(b, 3, -1)) # [B, 3, H*W]
     # torch.set_printoptions(precision=8)
@@ -315,7 +319,7 @@ def generate_warp_coords(tgt_depths, relative_poses, intrinsics=None):
 def calc_valid_points(depths, coords_norm, max_dist):
     b, _, h, w = depths.size()
 
-    valid_depth_points = (depths < 65535) * (depths > 0)
+    valid_depth_points = (depths < 5000) * (depths > 0)
     valid_coords_points = coords_norm.abs().max(dim=-1)[0] <= 1
     valid_coords_points = valid_coords_points.unsqueeze(1)
 
@@ -324,7 +328,7 @@ def calc_valid_points(depths, coords_norm, max_dist):
     valid_dist_points = valid_dist_points.unsqueeze(1)
     valid_points = valid_depth_points * valid_coords_points * valid_dist_points
 
-    return valid_points
+    return valid_points.float()
 
 def reconstruction(imgs, depths, poses, intrinsics=None, max_dist=0.5,padding_mode='zeros'):
     """
@@ -368,7 +372,7 @@ def main():
   from torch.utils import data
   from torchvision.utils import make_grid
   import torchvision.transforms as transforms
-  from vis_utils import show_batch, show_stereo_batch, show_triplet_batch
+  from vis_utils import show_batch, show_stereo_batch, show_triplet_batch, show_triplet_depth_batch
   from pose_utils import calc_vo_logq2q
   import sys
   sys.path.insert(0, '../')
@@ -378,7 +382,7 @@ def main():
   data_path = '../data/deepslam_data/7Scenes'
   seq = 'chess'
   steps = 3
-  skip = 1
+  skip = 10
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
@@ -420,6 +424,7 @@ def main():
     # tgt_depths: (N*ceil(T/2)) x 1 x H x W 
     src_imgs = color[:, :mid+1, ...].reshape(-1, *color.size()[2:])
     tgt_imgs = color[:, mid:, ...].reshape(-1, *color.size()[2:])
+    src_depths = depth[:, :mid+1, ...].reshape(-1, *depth.size()[2:])
     tgt_depths = depth[:, mid:, ...].reshape(-1, *depth.size()[2:])
     # print src_imgs.size(), tgt_imgs.size(), tgt_depths.size()
 
@@ -429,21 +434,26 @@ def main():
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
     targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
     # print targ_relative_poses.shape
-    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses)
+    projected_imgs, valid_points = reconstruction(src_depths, tgt_depths, targ_relative_poses)
     # print valid_points
     a = 1.0
     for i in valid_points.size():
         a *= i
-    n = torch.sum(valid_points == True).float()
+    n = torch.sum(valid_points == True).float()         
     print a, n, n/a*100
 
-    lb = make_grid(projected_imgs * valid_points.float(), nrow=mid+1, padding=25)
+    # lb = make_grid(projected_imgs * valid_points.float(), nrow=mid+1, padding=25)
     # lb = make_grid(src_imgs, nrow=mid+1, padding=25)
-    mb = make_grid(tgt_imgs, nrow=mid+1, padding=25)
-    rb = make_grid(projected_imgs, nrow=mid+1, padding=25)
+    # lb = make_grid(src_imgs, nrow=mid+1, padding=25)
+    # mb = make_grid(tgt_imgs, nrow=mid+1, padding=25)
+    # rb = make_grid(projected_imgs, nrow=mid+1, padding=25)
 
+    lb = make_grid(src_depths, normalize=True, scale_each=True, nrow=mid+1, padding=25)
+    mb = make_grid(tgt_depths, normalize=True, scale_each=True, nrow=mid+1, padding=25)
+    rb = make_grid(projected_imgs*valid_points.float(), normalize=True, scale_each=True, nrow=mid+1, padding=25)
 
-    show_triplet_batch(lb, mb, rb)
+    show_triplet_depth_batch(lb, mb, rb)
+    # show_triplet_batch(lb, mb, rb)
 
     batch_count += 1
     if batch_count >= N:

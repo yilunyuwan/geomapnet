@@ -25,6 +25,13 @@ def show_triplet_batch(l_batch, m_batch, r_batch):
   plt.imshow(np.concatenate((l_npimg, m_npimg, r_npimg), axis=1), interpolation='nearest')
   plt.show()
 
+def show_triplet_depth_batch(l_batch, m_batch, r_batch):
+  l_npimg = l_batch[0, ...]
+  m_npimg = m_batch[0, ...]
+  r_npimg = r_batch[0, ...]
+  plt.imshow(np.concatenate((l_npimg, m_npimg, r_npimg), axis=1, ), interpolation='nearest', cmap=plt.get_cmap('jet'))
+  plt.show()
+
 def vis_tsne(embedding, images, ax=None):
   """
 

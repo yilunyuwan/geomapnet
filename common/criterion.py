@@ -107,10 +107,10 @@ class GeoPoseNetCriterion(nn.Module):
     q_loss = self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
                             targ.view(-1, *s[2:])[:, 3:])
 
-    # abs_loss = t_loss + 3 * q_loss 
+    abs_loss = t_loss + 3 * q_loss 
 
-    abs_loss = torch.exp(-self.sax) * t_loss + self.sax + \
-               torch.exp(-self.saq) * q_loss  + self.saq
+    # abs_loss = torch.exp(-self.sax) * t_loss + self.sax + \
+    #            torch.exp(-self.saq) * q_loss  + self.saq
 
 
     # get the VOs
@@ -123,10 +123,10 @@ class GeoPoseNetCriterion(nn.Module):
     vo_q_loss = self.q_loss_fn(pred_vos.view(-1, *s[2:])[:, 3:],
                               targ_vos.view(-1, *s[2:])[:, 3:])
 
-    vo_loss = torch.exp(-self.srx) * vo_t_loss + self.srx + \
-              torch.exp(-self.srq) * vo_q_loss + self.srq
+    # vo_loss = torch.exp(-self.srx) * vo_t_loss + self.srx + \
+    #           torch.exp(-self.srq) * vo_q_loss + self.srq
       
-    # vo_loss = vo_t_loss + 3 * vo_q_loss 
+    vo_loss = 10*(vo_t_loss + 3 * vo_q_loss)
     
     # reconstruction_loss, ms_ssim_loss = torch.Tensor([0]).type_as(t_loss), torch.Tensor([0]).type_as(t_loss)
 
@@ -137,6 +137,7 @@ class GeoPoseNetCriterion(nn.Module):
     # tgt_depths: (N*ceil(T/2)) x 1 x H x W 
     src_imgs = color[:, :mid+1, ...].reshape(-1, *color.size()[2:])
     tgt_imgs = color[:, mid:, ...].reshape(-1, *color.size()[2:])
+    src_depths = depth[:, :mid+1, ...].reshape(-1, *depth.size()[2:])
     tgt_depths = depth[:, mid:, ...].reshape(-1, *depth.size()[2:])
     
     src_pred = pred[:, :mid+1, ...].reshape(-1, *s[2:])
@@ -146,17 +147,47 @@ class GeoPoseNetCriterion(nn.Module):
 
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
     pred_relative_poses = calc_vo_logq2q(src_pred, tgt_pred)
-    targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
+    # targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
     
-    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
-    diff = (projected_imgs - tgt_imgs) * valid_points.float()
-    reconstruction_loss =  diff.abs().mean()
-    lp_loss =  torch.exp(-self.slp) * diff.abs().mean() + self.slp
+    # rgbd 
+    # projected_imgs, rgb_valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
+    # rgb_diff = (projected_imgs - tgt_imgs) * rgb_valid_points.float() / 3.0
+    # reconstruction_loss = (rgb_diff.abs().mean() + d_diff.abs().mean()) / 2.0
+    # reconstruction_loss = rgb_diff.abs().mean()
+    '''
+    # depth try
+    src_valid = (src_depths < 5000).float() 
+    tgt_valid = (tgt_depths < 5000).float() 
+    projected_depths, d_valid_points = reconstruction(src_valid * src_depths, tgt_depths, pred_relative_poses)
+    total_valid = src_valid * tgt_valid * d_valid_points
+    projected_depths_valid = projected_depths * total_valid
+    tgt_depths_valid = tgt_depths * total_valid
+    d_diff = torch.abs(projected_depths_valid / torch.max(projected_depths_valid) - tgt_depths_valid / torch.max(tgt_depths_valid))
+    reconstruction_loss = torch.sum(d_diff) / torch.sum((total_valid>0).float())
+    '''
+    # rgb try
+    projected_imgs, rgb_valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
+    projected_imgs_valid = projected_imgs * rgb_valid_points
+    tgt_imgs_valid = tgt_imgs * rgb_valid_points
+    rgb_diff = torch.abs(projected_imgs_valid - tgt_imgs_valid)
+    reconstruction_loss = torch.sum(rgb_diff) / torch.sum((rgb_valid_points>0).float())
+    
+    # lp_loss =  torch.exp(-self.slp) * reconstruction_loss + self.slp
+    lp_loss =  0.01 * reconstruction_loss
     
     # MS-SSIM loss
-    ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_imgs * valid_points.float(), tgt_imgs * valid_points.float(), data_range=1, size_average=True))
+    '''
+    ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_depths * valid_points.float()/ 65535.0, tgt_depths * valid_points.float()/ 65535.0, data_range=1, size_average=True))
     ls_loss = torch.exp(-self.sls) * ms_ssim_loss + self.sls
+    '''
+    ssim_loss = torch.Tensor([0]).type_as(t_loss)
+    ls_loss = torch.Tensor([0]).type_as(t_loss)
+    
 
+    # imgx = projected_imgs * rgb_valid_points.float()
+    # imgy = tgt_imgs * rgb_valid_points.float()
+    # ssim_loss = 0.5 * (1 - ssim(imgx , imgy, data_range=1, win_size=3, size_average=True, mask=rgb_valid_points.float()))
+    # ls_loss = torch.exp(-self.sls) * ssim_loss + self.sls
     # total loss
     '''
     loss = self.ld * abs_loss + self.lp * reconstruction_loss + self.ls * ms_ssim_loss
@@ -164,7 +195,7 @@ class GeoPoseNetCriterion(nn.Module):
     loss = torch.exp(-self.sax) * (abs_loss + vo_loss) + torch.exp(-self.saq) * reconstruction_loss + self.sax + self.saq
     '''
     loss = abs_loss + vo_loss + lp_loss + ls_loss
-    return loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ms_ssim_loss
+    return loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss
 
 class MapNetCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,
@@ -328,7 +359,7 @@ def main():
   data_path = '../data/deepslam_data/7Scenes'
   seq = 'chess'
   steps = 3
-  skip = 5
+  skip = 10
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 5
@@ -360,7 +391,7 @@ def main():
   dropout = 0.5
   criterion = GeoPoseNetCriterion()
   criterion.cuda()
-  feature_extractor = models.resnet50(pretrained=True)
+  feature_extractor = models.resnet34(pretrained=True)
   posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True)
   model = MapNet(mapnet=posenet)
   model.train()
