@@ -170,7 +170,7 @@ class GeoPoseNetCriterion(nn.Module):
     projected_imgs_valid = projected_imgs * rgb_valid_points
     tgt_imgs_valid = tgt_imgs * rgb_valid_points
     rgb_diff = torch.abs(projected_imgs_valid - tgt_imgs_valid)
-    reconstruction_loss = torch.sum(rgb_diff) / torch.sum((rgb_valid_points>0).float())
+    reconstruction_loss = torch.sum(rgb_diff) / torch.sum((rgb_valid_points>0).float()) / 3.0
     
     # lp_loss =  torch.exp(-self.slp) * reconstruction_loss + self.slp
     lp_loss =  0.01 * reconstruction_loss
@@ -180,13 +180,13 @@ class GeoPoseNetCriterion(nn.Module):
     ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_depths * valid_points.float()/ 65535.0, tgt_depths * valid_points.float()/ 65535.0, data_range=1, size_average=True))
     ls_loss = torch.exp(-self.sls) * ms_ssim_loss + self.sls
     '''
-    ssim_loss = torch.Tensor([0]).type_as(t_loss)
-    ls_loss = torch.Tensor([0]).type_as(t_loss)
+    # ssim_loss = torch.Tensor([0]).type_as(t_loss)
+    # ls_loss = torch.Tensor([0]).type_as(t_loss)
     
-
-    # imgx = projected_imgs * rgb_valid_points.float()
-    # imgy = tgt_imgs * rgb_valid_points.float()
-    # ssim_loss = 0.5 * (1 - ssim(imgx , imgy, data_range=1, win_size=3, size_average=True, mask=rgb_valid_points.float()))
+    imgx = projected_imgs * rgb_valid_points.float()
+    imgy = tgt_imgs * rgb_valid_points.float()
+    ssim_loss = 0.5 * (1 - ssim(imgx , imgy, data_range=1, win_size=3, size_average=True, mask=rgb_valid_points.float()))
+    ls_loss = 0.01 * ssim_loss
     # ls_loss = torch.exp(-self.sls) * ssim_loss + self.sls
     # total loss
     '''
