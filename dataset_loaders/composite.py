@@ -41,7 +41,10 @@ class MF(data.Dataset):
     self.no_duplicates = no_duplicates
     self.mode = mode
 
-    if dataset == '7Scenes':
+    if dataset == 'TUM':
+      from tum import TUM
+      self.dset = TUM(*args, mode=self.mode, **kwargs)
+    elif dataset == '7Scenes':
       from seven_scenes import SevenScenes
       self.dset = SevenScenes(*args, real=self.real, mode=self.mode, **kwargs)
       if self.include_vos and self.real:
@@ -170,15 +173,15 @@ def main():
   """
   visualizes the dataset
   """
-  from common.vis_utils import show_batch, show_stereo_batch
+  from common.vis_utils import show_batch, show_stereo_batch, show_depth_batch
   from torchvision.utils import make_grid
   import torchvision.transforms as transforms
 
-  dataset = '7Scenes'
-  data_path = '../data/deepslam_data/7Scenes'
-  seq = 'chess'
+  dataset = 'TUM'
+  data_path = '../data/deepslam_data/TUM'
+  seq = 'fr1'
   steps = 3
-  skip = 10
+  skip = 5
    # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 5
@@ -197,7 +200,7 @@ def main():
   print 'Loaded 7Scenes sequence {:s}, length = {:d}'.format(seq,
     len(dset))
   
-  data_loader = data.DataLoader(dset, batch_size=10, shuffle=True,
+  data_loader = data.DataLoader(dset, batch_size=5, shuffle=True,
     num_workers=num_workers)
 
   batch_count = 0
@@ -216,7 +219,7 @@ def main():
       print imgs['d'].shape
       depth = imgs['d'].view(-1, *imgs['d'].shape[2:])
       print depth.shape
-      show_batch(make_grid(depth, nrow=3, padding=25))
+      show_depth_batch(make_grid(depth, nrow=3, padding=25))
     elif mode == 2:
       print imgs['c'].shape
       print imgs['d'].shape
@@ -226,7 +229,7 @@ def main():
       print depth.shape
 
       lb = make_grid(color, nrow=3, padding=25)
-      rb = make_grid(depth, nrow=3, padding=25)
+      rb = make_grid(depth.float()/65535.0, nrow=3, padding=25)
 
       show_stereo_batch(lb, rb)
 

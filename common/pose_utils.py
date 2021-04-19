@@ -402,6 +402,22 @@ def process_poses(poses_in, mean_t, std_t, align_R, align_t, align_s):
   poses_out[:, :3] /= std_t
   return poses_out
 
+def process_poses4tum(poses_in):
+  """
+  processes the N x 7 raw pose from dataset to  N x 6 translation + log quaternion
+  :param poses_in: N x 7
+  :return: processed poses (translation + log quaternion N x 6)
+  """
+  poses_out = np.zeros((len(poses_in), 6))
+  poses_out[:, 0:3] = poses_in[:, 0:3]
+
+  for i in xrange(len(poses_out)):
+    q = poses_in[i, 3:]
+    q = qlog(q)
+    poses_out[i, 3:] = q
+
+  return poses_out
+
 def log_quaternion_angular_error(q1, q2):
   return quaternion_angular_error(qexp(q1), qexp(q2))
 

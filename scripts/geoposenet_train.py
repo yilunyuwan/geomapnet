@@ -26,8 +26,7 @@ import random
 
 parser = argparse.ArgumentParser(description='Training script for PoseNet and'
                                              'MapNet variants')
-parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar'),
-                    help='Dataset')
+parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar',  'TUM'), help='Dataset')
 parser.add_argument('--scene', type=str, help='Scene name')
 parser.add_argument('--config_file', type=str, help='configuration file')
 parser.add_argument('--model', choices=('posenet', 'mapnet', 'mapnet++', 'geoposenet'),
@@ -153,8 +152,8 @@ optimizer = Optimizer(params=param_list, method=opt_method, base_lr=lr,
 data_dir = osp.join('..', 'data', args.dataset)
 stats_file = osp.join(data_dir, args.scene, 'stats.txt')
 stats = np.loadtxt(stats_file)
-crop_size_file = osp.join(data_dir, 'crop_size.txt')
-crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
+# crop_size_file = osp.join(data_dir, 'crop_size.txt')
+# crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
 
 # transformers
 tforms = [transforms.Resize(256)]
@@ -178,11 +177,11 @@ data_dir = osp.join('..', 'data', 'deepslam_data', args.dataset)
 kwargs = dict(scene=args.scene, data_path=data_dir, transform=data_transform,
               target_transform=target_transform, seed=seed)
 if args.model == 'geoposenet':
-  if args.dataset == '7Scenes':
+  if args.dataset == '7Scenes' or args.dataset == 'TUM':
     kwargs = dict(kwargs, dataset=args.dataset, skip=skip, steps=steps,
     variable_skip=variable_skip, depth_transform=depth_transform, mode=2)
-    train_set = MF(train=True, real=real, **kwargs)
-    val_set = MF(train=False, real=real, **kwargs)
+    train_set = MF(train=True, **kwargs)
+    val_set = MF(train=False, **kwargs)
   else:
     raise NotImplementedError
 elif args.model == 'posenet':

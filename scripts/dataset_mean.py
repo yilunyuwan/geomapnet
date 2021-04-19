@@ -11,20 +11,21 @@ import numpy as np
 import argparse
 import set_paths
 from dataset_loaders.seven_scenes import SevenScenes
+from dataset_loaders.tum import TUM
 # from dataset_loaders.robotcar import RobotCar
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from common.train import safe_collate
 
 parser = argparse.ArgumentParser(description='Dataset images statistics')
-parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar'),
+parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM'),
                     help='Dataset', required=True)
 parser.add_argument('--scene', type=str, help='Scene name', required=True)
 args = parser.parse_args()
 
 data_dir = osp.join('..', 'data', args.dataset)
-crop_size_file = osp.join(data_dir, 'crop_size.txt')
-crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
+# crop_size_file = osp.join(data_dir, 'crop_size.txt')
+# crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
 
 data_transform = transforms.Compose([
   transforms.Resize(256),
@@ -35,7 +36,9 @@ data_transform = transforms.Compose([
 data_dir = osp.join('..', 'data', 'deepslam_data', args.dataset)
 kwargs = dict(scene=args.scene, data_path=data_dir, train=True, real=False,
   transform=data_transform)
-if args.dataset == '7Scenes':
+if args.dataset == 'TUM':
+  dset = TUM(**kwargs)
+elif args.dataset == '7Scenes':
   dset = SevenScenes(**kwargs)
 elif args.dataset == 'RobotCar':
   dset = RobotCar(**kwargs)
@@ -52,7 +55,7 @@ loader = DataLoader(dset, batch_size=batch_size, num_workers=num_workers,
 acc = np.zeros((3, 256, 341))
 sq_acc = np.zeros((3, 256, 341))
 for batch_idx, (imgs, _) in enumerate(loader):
-  imgs = imgs.numpy()
+  imgs = imgs['c'].numpy()
   acc += np.sum(imgs, axis=0)
   sq_acc += np.sum(imgs**2, axis=0)
 
