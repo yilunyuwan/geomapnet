@@ -64,7 +64,7 @@ class TUM(data.Dataset):
         associate_gt_path = osp.join(seq_dir, 'associate_gt.txt')
         rgbs = np.loadtxt(associate_gt_path, dtype=str, usecols=1)
         depths = np.loadtxt(associate_gt_path, dtype=str, usecols=3)
-        pss = np.loadtxt(associate_gt_path, usecols=(5, 6, 7, 8, 9, 10, 11))
+        pss = np.loadtxt(associate_gt_path, usecols=(5, 6, 7, 11, 8, 9, 10))
         ps[seq] = np.asarray(pss)
 
         frame_idx = np.array(xrange(len(rgbs)), dtype=np.int)
@@ -170,9 +170,9 @@ def main():
       show_depth_batch(make_grid(imgs['d'], nrow=1, padding=25))
     elif mode == 2:
       lb = make_grid(imgs['c'], nrow=1, padding=25)
-      rb = make_grid(imgs['d'], nrow=1, padding=25)
-      show_batch(make_grid(imgs['c'], nrow=1, padding=25))
-      show_depth_batch(make_grid(imgs['d'], nrow=1, padding=25))
+      rb = make_grid(imgs['d'].float()/65535.0, nrow=1, padding=25)
+      show_stereo_batch(lb, rb)
+
 
     batch_count += 1
     if batch_count >= N:

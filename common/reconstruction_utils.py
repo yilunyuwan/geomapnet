@@ -267,7 +267,7 @@ def generate_norm_coords(b, h, w):
     uv_coords = uv_coords.expand(b, *uv_coords.size()) # [B, H, W, 2]
     return uv_coords
 
-def generate_warp_coords(tgt_depths, relative_poses, intrinsics=None):
+def generate_warp_coords(tgt_depths, relative_poses, depth_scale=1000, intrinsics=None):
     """
     Generate projection coordinates [u', v'], then intensity of pixel(u,v) of target image can be bilinear interpolated by the intensity of pixel(u', v') of source image
     Args:
@@ -280,21 +280,21 @@ def generate_warp_coords(tgt_depths, relative_poses, intrinsics=None):
     """
     b, _, h, w = tgt_depths.size()
     # Use default intrinsics, if intrinsics = None
-    if (intrinsics == None):
+    if (intrinsics is None):
         intrinsics = torch.tensor([[585, 0, 320],
                                     [0, 585, 240],
                                     [0, 0, 1]]).float()
-        downscale_u = 640.0 / w
-        downscale_v = 480.0 / h
-        intrinsics = torch.cat((intrinsics[0:1, :]/downscale_u, intrinsics[1:2, :]/downscale_v, intrinsics[2:, :]), dim=0)
-        intrinsics_inverse = intrinsics.inverse()
+    downscale_u = 640.0 / w
+    downscale_v = 480.0 / h
+    intrinsics = torch.cat((intrinsics[0:1, :]/downscale_u, intrinsics[1:2, :]/downscale_v, intrinsics[2:, :]), dim=0)
+    intrinsics_inverse = intrinsics.inverse()
 
     uv_coords = generate_uv1_coords(b, h, w) # [B, 3, H, W]
     cam_coords = torch.matmul(intrinsics_inverse, uv_coords.reshape(b, 3, -1)) # [B, 3, H*W]
     # torch.set_printoptions(precision=8)
     # print cam_coords
-    # depth map is a 16-bit image, and unit is millimeter
-    cam_coords = cam_coords.type_as(tgt_depths) * tgt_depths.reshape(b, 1, h*w).expand(b, 3, h*w) / 1000 # [B, 3, H*W]
+    # depth map is a 16-bit image, and unit is millimeter.(except for TUM dataset whose depth_scale is 5000)
+    cam_coords = cam_coords.type_as(tgt_depths) * tgt_depths.reshape(b, 1, h*w).expand(b, 3, h*w) / depth_scale # [B, 3, H*W]
     # print tgt_depths.reshape(b, 1, h*w)
     # print(tgt_depths.size())
     # a = 1.0
@@ -316,10 +316,10 @@ def generate_warp_coords(tgt_depths, relative_poses, intrinsics=None):
     warp_coords = torch.stack([src_u, src_v], dim=2)  # [B, H*W, 2]
     return warp_coords.reshape(b, h, w, 2)
 
-def calc_valid_points(depths, coords_norm, max_dist):
+def calc_valid_points(depths, coords_norm, max_dist, max_depth=65535):
     b, _, h, w = depths.size()
 
-    valid_depth_points = (depths < 5000) * (depths > 0)
+    valid_depth_points = (depths < max_depth-10) * (depths > 10)
     valid_coords_points = coords_norm.abs().max(dim=-1)[0] <= 1
     valid_coords_points = valid_coords_points.unsqueeze(1)
 
@@ -330,7 +330,7 @@ def calc_valid_points(depths, coords_norm, max_dist):
 
     return valid_points.float()
 
-def reconstruction(imgs, depths, poses, intrinsics=None, max_dist=0.5,padding_mode='zeros'):
+def reconstruction(imgs, depths, poses, depth_scale=1000, intrinsics=None, max_dist=0.8, max_depth=65535, padding_mode='zeros'):
     """
     Reconstruct the target image from a source image.
 
@@ -347,11 +347,11 @@ def reconstruction(imgs, depths, poses, intrinsics=None, max_dist=0.5,padding_mo
     b, _, h, w = imgs.size()
 
     # Get projection matrix for tgt camera frame to source pixel frame
-    src_pixel_coords = generate_warp_coords(depths, poses, intrinsics)
+    src_pixel_coords = generate_warp_coords(depths, poses, depth_scale, intrinsics)
     # print src_pixel_coords
     projected_imgs = F.grid_sample(imgs, src_pixel_coords, padding_mode=padding_mode)
 
-    valid_points = calc_valid_points(depths, src_pixel_coords, max_dist)
+    valid_points = calc_valid_points(depths, src_pixel_coords, max_dist, max_depth)
     
 
     # a = 1.0
@@ -378,11 +378,11 @@ def main():
   sys.path.insert(0, '../')
   from dataset_loaders.composite import MF
 
-  dataset = '7Scenes'
-  data_path = '../data/deepslam_data/7Scenes'
-  seq = 'chess'
+  dataset = 'TUM'
+  data_path = '../data/deepslam_data/TUM'
+  seq = 'fr1'
   steps = 3
-  skip = 10
+  skip = 5
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
@@ -402,7 +402,7 @@ def main():
 
   dset = MF(dataset=dataset, train=True, target_transform=target_transform,
             depth_transform=depth_transform, mode=mode, **kwargs)
-  print 'Loaded 7Scenes sequence {:s}, length = {:d}'.format(seq,
+  print 'Loaded TUM sequence {:s}, length = {:d}'.format(seq,
     len(dset))
   
   data_loader = data.DataLoader(dset, batch_size=5, shuffle=True,
@@ -434,7 +434,12 @@ def main():
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
     targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
     # print targ_relative_poses.shape
-    projected_imgs, valid_points = reconstruction(src_depths, tgt_depths, targ_relative_poses)
+    K = torch.tensor([[517.3, 0, 318.6],
+                                    [0, 516.5, 255.3],
+                                    [0, 0, 1]]).float()
+
+    # K=None
+    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses, depth_scale=5000, intrinsics=K)
     # print valid_points
     a = 1.0
     for i in valid_points.size():
@@ -444,16 +449,16 @@ def main():
 
     # lb = make_grid(projected_imgs * valid_points.float(), nrow=mid+1, padding=25)
     # lb = make_grid(src_imgs, nrow=mid+1, padding=25)
-    # lb = make_grid(src_imgs, nrow=mid+1, padding=25)
-    # mb = make_grid(tgt_imgs, nrow=mid+1, padding=25)
-    # rb = make_grid(projected_imgs, nrow=mid+1, padding=25)
+    lb = make_grid(projected_imgs, nrow=mid+1, padding=25)
+    mb = make_grid(tgt_imgs, nrow=mid+1, padding=25)
+    rb = make_grid(projected_imgs*valid_points, nrow=mid+1, padding=25)
 
-    lb = make_grid(src_depths, normalize=True, scale_each=True, nrow=mid+1, padding=25)
-    mb = make_grid(tgt_depths, normalize=True, scale_each=True, nrow=mid+1, padding=25)
-    rb = make_grid(projected_imgs*valid_points.float(), normalize=True, scale_each=True, nrow=mid+1, padding=25)
+    # lb = make_grid(src_depths, normalize=True, scale_each=True, nrow=mid+1, padding=25)
+    # mb = make_grid(tgt_depths, normalize=True, scale_each=True, nrow=mid+1, padding=25)
+    # rb = make_grid(projected_imgs*valid_points.float(), normalize=True, scale_each=True, nrow=mid+1, padding=25)
 
-    show_triplet_depth_batch(lb, mb, rb)
-    # show_triplet_batch(lb, mb, rb)
+    # show_triplet_depth_batch(lb, mb, rb)
+    show_triplet_batch(lb, mb, rb)
 
     batch_count += 1
     if batch_count >= N:
