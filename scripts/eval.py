@@ -29,7 +29,7 @@ import cPickle
 # config
 parser = argparse.ArgumentParser(description='Evaluation script for PoseNet and'
                                              'MapNet variants')
-parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar'),
+parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM'),
                     help='Dataset')
 parser.add_argument('--scene', type=str, help='Scene name')
 parser.add_argument('--weights', type=str, help='trained weights to load')
@@ -123,6 +123,10 @@ if (args.model.find('mapnet') >= 0) or args.pose_graph:
                 variable_skip=variable_skip, include_vos=args.pose_graph,
                 vo_func=vo_func, no_duplicates=False, **kwargs)
   L = len(data_set.dset)
+elif args.dataset == 'TUM':
+  from dataset_loaders.tum import TUM
+  data_set = TUM(**kwargs)
+  L = len(data_set)
 elif args.dataset == '7Scenes':
   from dataset_loaders.seven_scenes import SevenScenes
   data_set = SevenScenes(**kwargs)

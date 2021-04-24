@@ -128,8 +128,8 @@ class GeoPoseNetCriterion(nn.Module):
       
     vo_loss = 10*(vo_t_loss + 3 * vo_q_loss)
     
-    # reconstruction_loss, ms_ssim_loss = torch.Tensor([0]).type_as(t_loss), torch.Tensor([0]).type_as(t_loss)
-
+    reconstruction_loss = torch.Tensor([0]).type_as(t_loss)
+    '''
     # get the photometric reconstruction
     # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
     mid = s[1] / 2
@@ -149,21 +149,7 @@ class GeoPoseNetCriterion(nn.Module):
     pred_relative_poses = calc_vo_logq2q(src_pred, tgt_pred)
     # targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
     
-    # rgbd 
-    # projected_imgs, rgb_valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
-    # rgb_diff = (projected_imgs - tgt_imgs) * rgb_valid_points.float() / 3.0
-    # reconstruction_loss = (rgb_diff.abs().mean() + d_diff.abs().mean()) / 2.0
-    # reconstruction_loss = rgb_diff.abs().mean()
     '''
-    # depth try
-    src_valid = (src_depths < 5000).float() 
-    tgt_valid = (tgt_depths < 5000).float() 
-    projected_depths, d_valid_points = reconstruction(src_valid * src_depths, tgt_depths, pred_relative_poses)
-    total_valid = src_valid * tgt_valid * d_valid_points
-    projected_depths_valid = projected_depths * total_valid
-    tgt_depths_valid = tgt_depths * total_valid
-    d_diff = torch.abs(projected_depths_valid / torch.max(projected_depths_valid) - tgt_depths_valid / torch.max(tgt_depths_valid))
-    reconstruction_loss = torch.sum(d_diff) / torch.sum((total_valid>0).float())
     '''
     # rgb try
     projected_imgs, rgb_valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
@@ -173,6 +159,7 @@ class GeoPoseNetCriterion(nn.Module):
     reconstruction_loss = torch.sum(rgb_diff) / torch.sum((rgb_valid_points>0).float()) / 3.0
     
     # lp_loss =  torch.exp(-self.slp) * reconstruction_loss + self.slp
+    '''
     lp_loss =  0.01 * reconstruction_loss
     
     # MS-SSIM loss
@@ -180,13 +167,14 @@ class GeoPoseNetCriterion(nn.Module):
     ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_depths * valid_points.float()/ 65535.0, tgt_depths * valid_points.float()/ 65535.0, data_range=1, size_average=True))
     ls_loss = torch.exp(-self.sls) * ms_ssim_loss + self.sls
     '''
-    # ssim_loss = torch.Tensor([0]).type_as(t_loss)
-    # ls_loss = torch.Tensor([0]).type_as(t_loss)
-    
+    ssim_loss = torch.Tensor([0]).type_as(t_loss)
+    ls_loss = torch.Tensor([0]).type_as(t_loss)
+    '''
     imgx = projected_imgs * rgb_valid_points.float()
     imgy = tgt_imgs * rgb_valid_points.float()
     ssim_loss = 0.5 * (1 - ssim(imgx , imgy, data_range=1, win_size=3, size_average=True, mask=rgb_valid_points.float()))
     ls_loss = 0.01 * ssim_loss
+    '''
     # ls_loss = torch.exp(-self.sls) * ssim_loss + self.sls
     # total loss
     '''

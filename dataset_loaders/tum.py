@@ -173,7 +173,6 @@ def main():
       rb = make_grid(imgs['d'].float()/65535.0, nrow=1, padding=25)
       show_stereo_batch(lb, rb)
 
-
     batch_count += 1
     if batch_count >= N:
       break

@@ -1,1 +1,1 @@
-python geoposenet_train.py --dataset 7Scenes --scene chess --config_file configs/geoposenet.ini --model geoposenet --device 0 --learn_beta
+python geoposenet_train.py --dataset TUM --scene fr1 --config_file configs/geonet_skip5.ini --model geoposenet --device 0 --suffix _only_pose

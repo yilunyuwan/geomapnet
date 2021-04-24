@@ -19,5 +19,13 @@ def load_image(filename, loader=default_loader):
   return img
 
 def load_depth(filename):
-  img = Image.open(filename).convert('I')
+  try:
+    img = Image.open(filename).convert('I')
+  except IOError as e:
+    print 'Could not load image {:s}, IOError: {:s}'.format(filename, e)
+    return None
+  except:
+    print 'Could not load image {:s}, unexpected error'.format(filename)
+    return None
+
   return img
