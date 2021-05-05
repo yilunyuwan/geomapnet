@@ -377,19 +377,20 @@ def main():
   import sys
   sys.path.insert(0, '../')
   from dataset_loaders.composite import MF
+  from ssim import ssim, ms_ssim
 
   dataset = 'TUM'
   data_path = '../data/deepslam_data/TUM'
   seq = 'fr1'
   steps = 3
-  skip = 5
+  skip = 1
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
   transform = transforms.Compose([
     transforms.Resize(256),
     transforms.ToTensor(),
-
+    transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
   ])
   depth_transform = transforms.Compose([
     transforms.Resize(256),
@@ -414,7 +415,8 @@ def main():
     # imgs: {'c': B x steps x 3 x H x W, 'd': B x steps x 1 x H x W}
     # poses: B x steps x 6 translation + log q
     print 'Minibatch {:d}'.format(batch_count)
-    color, depth = imgs['c'], imgs['d']
+    color, depth = (imgs['c']+1)/2.0, (imgs['d']+1)/2.0
+    # color, depth = imgs['c'], imgs['d']
     targ = poses
     s = poses.size()
     # get the photometric reconstruction
@@ -434,12 +436,23 @@ def main():
     # pred_relative_poses, targ_relative_poses: (N*ceil(T/2)) x 7
     targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
     # print targ_relative_poses.shape
-    K = torch.tensor([[517.3, 0, 318.6],
-                                    [0, 516.5, 255.3],
-                                    [0, 0, 1]]).float()
+    # 7Scenes
+    K = None
+    depth_scale = 1000
+    if dataset == 'TUM':
+        depth_scale = 5000
+        if seq == 'fr1':
+            # TUM dataset
+            K = torch.tensor([[517.3, 0, 318.6],
+                                            [0, 516.5, 255.3],
+                                            [0, 0, 1]]).float()
+        else:
+            # CoRBS dataset
+            K = torch.tensor([[468.60, 0, 318.27],
+                                            [0, 468.61, 243.99],
+                                            [0, 0, 1]]).float()
 
-    # K=None
-    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses, depth_scale=5000, intrinsics=K)
+    projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses, depth_scale=depth_scale, intrinsics=K)
     # print valid_points
     a = 1.0
     for i in valid_points.size():
@@ -447,9 +460,20 @@ def main():
     n = torch.sum(valid_points == True).float()         
     print a, n, n/a*100
 
+    projected_imgs_valid = projected_imgs * valid_points
+    tgt_imgs_valid = tgt_imgs * valid_points
+    rgb_diff = torch.abs(projected_imgs_valid - tgt_imgs_valid)
+    reconstruction_loss = torch.sum(rgb_diff) / torch.sum((valid_points>0).float()) / 3.0
+    print 'reconstruction_loss under ground-truth pose:{:f}'.format(reconstruction_loss)
+
+    imgx = projected_imgs * valid_points.float()
+    imgy = tgt_imgs * valid_points.float()
+    ssim_loss = 0.5 * (1 - ssim(imgx , imgy, data_range=1, win_size=3, size_average=True, mask=valid_points.float()))
+    print 'ssim_loss under ground-truth pose:{:f}'.format(ssim_loss)
+
     # lb = make_grid(projected_imgs * valid_points.float(), nrow=mid+1, padding=25)
-    # lb = make_grid(src_imgs, nrow=mid+1, padding=25)
-    lb = make_grid(projected_imgs, nrow=mid+1, padding=25)
+    lb = make_grid(src_imgs, nrow=mid+1, padding=25)
+    # lb = make_grid(projected_imgs, nrow=mid+1, padding=25)
     mb = make_grid(tgt_imgs, nrow=mid+1, padding=25)
     rb = make_grid(projected_imgs*valid_points, nrow=mid+1, padding=25)
 

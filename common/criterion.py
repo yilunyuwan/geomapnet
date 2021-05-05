@@ -13,7 +13,7 @@ import pose_utils
 from reconstruction_utils import reconstruction
 import torch
 from torch import nn
-from ssim import ssim, ms_ssim
+from ssim import ssim
 
 class QuaternionLoss(nn.Module):
   """
@@ -62,7 +62,7 @@ modified from MapNetCriterion
 """
 class GeoPoseNetCriterion(nn.Module):
   def __init__(self, t_loss_fn=nn.L1Loss(), q_loss_fn=nn.L1Loss(), sax=0.0,
-               saq=-3.0, srx=0.0, srq=-3.0, learn_beta=False, learn_gamma=False, learn_recon=False,slp=0.0, sls=0.0):
+               saq=-3.0, srx=0.0, srq=-3.0, learn_beta=False, learn_gamma=False, learn_recon=False,slp=0.0, sls=0.0, depth_scale=1000, K=None):
               #  ld=1, lp=0.01, ls=0.1):
     """
     Implements L_D from eq. 2 in the paper
@@ -84,6 +84,8 @@ class GeoPoseNetCriterion(nn.Module):
     self.srq = nn.Parameter(torch.Tensor([srq]), requires_grad=learn_gamma)
     self.slp = nn.Parameter(torch.Tensor([slp]), requires_grad=learn_recon)
     self.sls = nn.Parameter(torch.Tensor([sls]), requires_grad=learn_recon)
+    self.K = K
+    self.depth_scale = depth_scale
     # self.ld = ld
     # self.lp = lp
     # self.ls = ls
@@ -128,13 +130,14 @@ class GeoPoseNetCriterion(nn.Module):
       
     vo_loss = 10*(vo_t_loss + 3 * vo_q_loss)
     
-    reconstruction_loss = torch.Tensor([0]).type_as(t_loss)
-    '''
+    # reconstruction_loss = torch.Tensor([0]).type_as(t_loss)
+    
     # get the photometric reconstruction
     # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
     mid = s[1] / 2
     # src_imgs, tgt_imgs: (N*ceil(T/2)) x 3 x H x W 
     # tgt_depths: (N*ceil(T/2)) x 1 x H x W 
+    # rgb = (color + 1) / 2.0
     src_imgs = color[:, :mid+1, ...].reshape(-1, *color.size()[2:])
     tgt_imgs = color[:, mid:, ...].reshape(-1, *color.size()[2:])
     src_depths = depth[:, :mid+1, ...].reshape(-1, *depth.size()[2:])
@@ -149,34 +152,35 @@ class GeoPoseNetCriterion(nn.Module):
     pred_relative_poses = calc_vo_logq2q(src_pred, tgt_pred)
     # targ_relative_poses = calc_vo_logq2q(src_targ, tgt_targ) 
     
-    '''
-    '''
     # rgb try
-    projected_imgs, rgb_valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses)
+    projected_imgs, rgb_valid_points = reconstruction(src_imgs, tgt_depths, pred_relative_poses, depth_scale=self.depth_scale, intrinsics=self.K)
     projected_imgs_valid = projected_imgs * rgb_valid_points
     tgt_imgs_valid = tgt_imgs * rgb_valid_points
     rgb_diff = torch.abs(projected_imgs_valid - tgt_imgs_valid)
     reconstruction_loss = torch.sum(rgb_diff) / torch.sum((rgb_valid_points>0).float()) / 3.0
-    
+
     # lp_loss =  torch.exp(-self.slp) * reconstruction_loss + self.slp
-    '''
+    
     lp_loss =  0.01 * reconstruction_loss
     
     # MS-SSIM loss
     '''
     ms_ssim_loss = 0.5 * (1 - ms_ssim(projected_depths * valid_points.float()/ 65535.0, tgt_depths * valid_points.float()/ 65535.0, data_range=1, size_average=True))
     ls_loss = torch.exp(-self.sls) * ms_ssim_loss + self.sls
-    '''
-    ssim_loss = torch.Tensor([0]).type_as(t_loss)
-    ls_loss = torch.Tensor([0]).type_as(t_loss)
-    '''
+    
+    
+    
     imgx = projected_imgs * rgb_valid_points.float()
     imgy = tgt_imgs * rgb_valid_points.float()
+
     ssim_loss = 0.5 * (1 - ssim(imgx , imgy, data_range=1, win_size=3, size_average=True, mask=rgb_valid_points.float()))
     ls_loss = 0.01 * ssim_loss
     '''
     # ls_loss = torch.exp(-self.sls) * ssim_loss + self.sls
+    ssim_loss = torch.Tensor([0]).type_as(t_loss)
+    ls_loss = torch.Tensor([0]).type_as(t_loss)
     # total loss
+
     '''
     loss = self.ld * abs_loss + self.lp * reconstruction_loss + self.ls * ms_ssim_loss
     
@@ -343,9 +347,9 @@ def main():
   from dataset_loaders.composite import MF
   from models.posenet import PoseNet, MapNet
 
-  dataset = '7Scenes'
-  data_path = '../data/deepslam_data/7Scenes'
-  seq = 'chess'
+  dataset = 'TUM'
+  data_path = '../data/deepslam_data/TUM'
+  seq = 'fr1'
   steps = 3
   skip = 10
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb

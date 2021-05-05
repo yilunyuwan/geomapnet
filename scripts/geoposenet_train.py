@@ -109,7 +109,18 @@ else:
 
 # loss function
 if args.model == 'geoposenet':
-  train_criterion = GeoPoseNetCriterion(sax=sax, saq=saq, srx=srx, srq=srq,slp=slp, sls=sls, learn_beta=args.learn_beta, learn_gamma=args.learn_gamma, learn_recon=args.learn_recon)#, ld=ld, lp=lp, ls=ls)
+  kwargs = dict(sax=sax, saq=saq, srx=srx, srq=srq, slp=slp, sls=sls, learn_beta=args.learn_beta, learn_gamma=args.learn_gamma, learn_recon=args.learn_recon)#, ld=ld, lp=lp, ls=ls)
+  if args.dataset == 'TUM':
+    if args.scene == 'fr1': # TUM dataset
+      K = torch.tensor([[517.3, 0, 318.6],
+                                    [0, 516.5, 255.3],
+                                    [0, 0, 1]]).float()
+    else: # CoRBS dataset
+      K = torch.tensor([[468.60, 0, 318.27],
+                                      [0, 468.61, 243.99],
+                                      [0, 0, 1]]).float()
+    kwargs = dict(kwargs, depth_scale=5000, K=K)
+  train_criterion = GeoPoseNetCriterion(**kwargs)
   val_criterion = GeoPoseNetCriterion()
 elif args.model == 'posenet':
   train_criterion = PoseNetCriterion(sax=sax, saq=saq, learn_beta=args.learn_beta)
