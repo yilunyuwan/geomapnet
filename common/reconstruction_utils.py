@@ -381,16 +381,16 @@ def main():
 
   dataset = 'TUM'
   data_path = '../data/deepslam_data/TUM'
-  seq = 'fr1'
+  seq = 'desk'
   steps = 3
-  skip = 1
+  skip = 5
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
   transform = transforms.Compose([
     transforms.Resize(256),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
   ])
   depth_transform = transforms.Compose([
     transforms.Resize(256),

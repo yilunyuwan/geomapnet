@@ -130,8 +130,8 @@ class GeoPoseNetCriterion(nn.Module):
       
     vo_loss = 10*(vo_t_loss + 3 * vo_q_loss)
     
-    # reconstruction_loss = torch.Tensor([0]).type_as(t_loss)
-    
+    reconstruction_loss = torch.Tensor([0]).type_as(t_loss)
+    '''
     # get the photometric reconstruction
     # u_{src} = K T_{tgt->src} D_{tgt} K^{-1} u_{tgt}
     mid = s[1] / 2
@@ -158,7 +158,7 @@ class GeoPoseNetCriterion(nn.Module):
     tgt_imgs_valid = tgt_imgs * rgb_valid_points
     rgb_diff = torch.abs(projected_imgs_valid - tgt_imgs_valid)
     reconstruction_loss = torch.sum(rgb_diff) / torch.sum((rgb_valid_points>0).float()) / 3.0
-
+    '''
     # lp_loss =  torch.exp(-self.slp) * reconstruction_loss + self.slp
     
     lp_loss =  0.01 * reconstruction_loss

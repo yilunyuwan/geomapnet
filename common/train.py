@@ -74,7 +74,7 @@ def seed_worker(worker_id):
 class Trainer(object):
   def __init__(self, model, optimizer, train_criterion, config_file, experiment,
       train_dataset, val_dataset, device, checkpoint_file=None,
-      resume_optim=False, val_criterion=None):
+      resume_optim=False, val_criterion=None, two_stream=False):
     """
     General purpose training script
     :param model: Network model
@@ -98,6 +98,7 @@ class Trainer(object):
       self.val_criterion = val_criterion
     self.experiment = experiment
     self.optimizer = optimizer
+    self.two_stream = two_stream
     if 'CUDA_VISIBLE_DEVICES' not in os.environ:
       os.environ['CUDA_VISIBLE_DEVICES'] = device
 
@@ -241,7 +242,7 @@ class Trainer(object):
           kwargs = dict(target=target, criterion=self.val_criterion,
             optim=self.optimizer, train=False)
           if geopose:
-            loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], **kwargs)
+            loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], two_stream=self.two_stream, **kwargs)
           elif lstm:
             loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
           else:
@@ -320,7 +321,7 @@ class Trainer(object):
           optim=self.optimizer, train=True,
           max_grad_norm=self.config['max_grad_norm'])
         if geopose:
-          loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], **kwargs)
+          loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], two_stream=self.two_stream, **kwargs)
         elif lstm:
           loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
         else:
@@ -402,7 +403,7 @@ class Trainer(object):
 modified from step_feedfwd
 """
 def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
-    train=True, max_grad_norm=0.0):
+    train=True, max_grad_norm=0.0, two_stream=False):
   """
   training/validation step for a feedforward NN
   :param data: {'c': B x STEPS x 3 x H x W, 'd': B x STEPS x 1 x H x W}
@@ -424,7 +425,13 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
     color_var = color_var.cuda(async=True)
     depth_var = depth_var.cuda(async=True)
   with torch.set_grad_enabled(train):
-    output = model(color_var)
+    if two_stream:
+      dn_var = Variable(data['dn'], requires_grad=False)
+      if cuda:
+        dn_var = dn_var.cuda(async=True)
+      output = model(color_var, dn_var)
+    else:
+      output = model(color_var)
 
   if criterion is not None:
     if cuda:

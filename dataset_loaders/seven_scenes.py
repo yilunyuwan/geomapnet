@@ -19,7 +19,7 @@ from common.pose_utils import process_poses
 
 class SevenScenes(data.Dataset):
     def __init__(self, scene, data_path, train, 
-    transform=None, depth_transform=None, target_transform=None, mode=0, seed=7, real=False,skip_images=False, vo_lib='orbslam'):
+    transform=None, depth_transform=None, target_transform=None, mode=0, seed=7, real=False,skip_images=False, vo_lib='orbslam', draw_seq=None):
       """
       :param scene: scene name ['chess', 'pumpkin', ...]
       :param data_path: root 7scenes data directory.
@@ -52,6 +52,10 @@ class SevenScenes(data.Dataset):
         split_file = osp.join(base_dir, 'TestSplit.txt')
       with open(split_file, 'r') as f:
         seqs = [int(l.split('sequence')[-1]) for l in f if not l.startswith('#')]
+
+      # only for drawing sequence's trajectory
+      if draw_seq is not None:
+        seqs = [draw_seq]
 
       # read poses and collect image names
       self.c_imgs = []

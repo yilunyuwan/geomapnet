@@ -41,6 +41,8 @@ parser.add_argument('--learn_gamma', action='store_true',
   help='Learn the weight of relative pose loss')
 parser.add_argument('--learn_recon', action='store_true',
   help='Learn the weight of photometric loss and ssim loss')
+parser.add_argument('--two_stream', action='store_true',
+  help='Whether using two stream CNN (RGB CNN and Depth CNN) or not')
 parser.add_argument('--resume_optim', action='store_true',
   help='Resume optimization (only effective if a checkpoint is given')
 parser.add_argument('--suffix', type=str, default='',
@@ -97,9 +99,9 @@ torch.backends.cudnn.deterministic = True
 # model
 feature_extractor = models.resnet34(pretrained=True)
 posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=True,
-                  filter_nans=(args.model=='mapnet++'))
+                filter_nans=(args.model=='mapnet++'), two_stream=args.two_stream)
 if args.model == 'geoposenet':
-  model = MapNet(mapnet=posenet)
+  model = MapNet(mapnet=posenet, two_stream=args.two_stream)
 elif args.model == 'posenet':
   model = posenet
 elif args.model.find('mapnet') >= 0:
@@ -163,6 +165,7 @@ optimizer = Optimizer(params=param_list, method=opt_method, base_lr=lr,
 data_dir = osp.join('..', 'data', args.dataset)
 stats_file = osp.join(data_dir, args.scene, 'stats.txt')
 stats = np.loadtxt(stats_file)
+depth_stats = np.loadtxt( osp.join(data_dir, args.scene, 'depth_stats.txt') )
 # crop_size_file = osp.join(data_dir, 'crop_size.txt')
 # crop_size = tuple(np.loadtxt(crop_size_file).astype(np.int))
 
@@ -174,12 +177,22 @@ if color_jitter > 0:
   tforms.append(transforms.ColorJitter(brightness=color_jitter,
     contrast=color_jitter, saturation=color_jitter, hue=0.5))
 tforms.append(transforms.ToTensor())
-tforms.append(transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1])))
+tforms.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
 data_transform = transforms.Compose(tforms)
 depth_transform = transforms.Compose([
     transforms.Resize(256),
+    # transforms.ToTensor() won't normalize int16 array to [0, 1]
     transforms.ToTensor(),
+    # convenient for division operation
 	  transforms.Lambda(lambda x: x.float())
+  ])
+dn_transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.ToTensor() won't normalize int16 array to [0, 1]
+    transforms.ToTensor(),
+    # from [B, 1, H, W] to [B, C, H, W] and normalization
+	  transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / 65535.0),
+    transforms.Normalize(mean=depth_stats[0], std=np.sqrt(depth_stats[1]))
   ])
 target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
 
@@ -191,6 +204,8 @@ if args.model == 'geoposenet':
   if args.dataset == '7Scenes' or args.dataset == 'TUM':
     kwargs = dict(kwargs, dataset=args.dataset, skip=skip, steps=steps,
     variable_skip=variable_skip, depth_transform=depth_transform, mode=2)
+    if (args.two_stream):
+      kwargs = dict(kwargs, dn_transform=dn_transform, two_stream=True)
     train_set = MF(train=True, **kwargs)
     val_set = MF(train=False, **kwargs)
   else:
@@ -233,7 +248,7 @@ experiment_name += args.suffix
 trainer = Trainer(model, optimizer, train_criterion, args.config_file,
                   experiment_name, train_set, val_set, device=args.device,
                   checkpoint_file=args.checkpoint,
-                  resume_optim=args.resume_optim, val_criterion=val_criterion)
+                  resume_optim=args.resume_optim, val_criterion=val_criterion, two_stream=args.two_stream)
 lstm = args.model == 'vidloc'
 geopose = args.model == 'geoposenet'
 trainer.train_val(lstm=lstm, geopose=geopose)

@@ -35,16 +35,24 @@ def filter_hook(m, g_in, g_out):
 
 class PoseNet(nn.Module):
   def __init__(self, feature_extractor, droprate=0.5, pretrained=True,
-      feat_dim=2048, filter_nans=False):
+      feat_dim=2048, filter_nans=False, two_stream=False):
     super(PoseNet, self).__init__()
     self.droprate = droprate
     self.dropout = nn.Dropout(p=self.droprate)
+    self.two_stream = two_stream
+    fe_out_planes = feature_extractor.fc.in_features
+    # RGB feature extractor
     # replace the last FC layer in feature extractor
-    self.feature_extractor = feature_extractor
-    self.feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
-    fe_out_planes = self.feature_extractor.fc.in_features
-    self.feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
+    self.rgb_feature_extractor = feature_extractor
+    self.rgb_feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
+    self.rgb_feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
+    # Depth feature extractor
+    # replace the last FC layer in feature extractor
+    self.depth_feature_extractor = feature_extractor
+    self.depth_feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
+    self.depth_feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
 
+    self.fc_rgbd_fusion = nn.Linear(2*feat_dim, feat_dim)
     self.fc_xyz  = nn.Linear(feat_dim, 3)
     self.fc_wpqr = nn.Linear(feat_dim, 3)
     if filter_nans:
@@ -52,7 +60,7 @@ class PoseNet(nn.Module):
 
     # initialize
     if pretrained:
-      init_modules = [self.feature_extractor.fc, self.fc_xyz, self.fc_wpqr]
+      init_modules = [self.rgb_feature_extractor.fc, self.depth_feature_extractor.fc, self.fc_rgbd_fusion, self.fc_xyz, self.fc_wpqr]
     else:
       init_modules = self.modules()
 
@@ -62,11 +70,21 @@ class PoseNet(nn.Module):
         if m.bias is not None:
           nn.init.constant_(m.bias.data, 0)
 
-  def forward(self, x):
-    x = self.feature_extractor(x)
+  def forward(self, rgbs, depths=None):
+    # RGB feature extractor
+    x = self.rgb_feature_extractor(rgbs)
     x = F.relu(x)
     if self.droprate > 0:
       x = self.dropout(x)
+    if self.two_stream:
+      # Depth feature extractor
+      y = self.depth_feature_extractor(depths)
+      y = F.relu(y)
+      if self.droprate > 0:
+        y = self.dropout(y)
+      # concatenate x and y
+      fuse = torch.cat((x, y), dim=1)
+      x = self.fc_rgbd_fusion(fuse)
 
     xyz  = self.fc_xyz(x)
     wpqr = self.fc_wpqr(x)
@@ -76,22 +94,26 @@ class MapNet(nn.Module):
   """
   Implements the MapNet model (green block in Fig. 2 of paper)
   """
-  def __init__(self, mapnet):
+  def __init__(self, mapnet, two_stream=False):
     """
     :param mapnet: the MapNet (two CNN blocks inside the green block in Fig. 2
     of paper). Not to be confused with MapNet, the model!
     """
     super(MapNet, self).__init__()
     self.mapnet = mapnet
+    self.two_stream = two_stream
 
-  def forward(self, x):
+  def forward(self, rgbs, depths=None):
     """
-    :param x: image blob (N x T x C x H x W)
-    :return: pose outputs
+    :param rgbs: image blob (N x T x C x H x W)
+    :param depths: image blob (N x T x C x H x W)
+    :return: pose nnd nd
      (N x T x 6)
     """
-    s = x.size()
-    x = x.view(-1, *s[2:])
-    poses = self.mapnet(x)
+    s = rgbs.size()
+    rgbs = rgbs.view(-1, *s[2:])
+    if self.two_stream and depths is not None:
+      depths = depths.view(-1, *s[2:])
+    poses = self.mapnet(rgbs, depths)
     poses = poses.view(s[0], s[1], -1)
     return poses

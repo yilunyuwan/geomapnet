@@ -20,7 +20,7 @@ class MF(data.Dataset):
   Returns multiple consecutive frames, and optionally VOs
   """
   def __init__(self, dataset, include_vos=False, no_duplicates=False,
-               mode=0, *args, **kwargs):
+               mode=0, two_stream=False, dn_transform=None,*args, **kwargs):
     """
     :param steps: Number of frames to return on every call
     :param skip: Number of frames to skip
@@ -40,10 +40,12 @@ class MF(data.Dataset):
     self.vo_func = kwargs.pop('vo_func', calc_vos_simple)
     self.no_duplicates = no_duplicates
     self.mode = mode
+    self.two_stream = two_stream
 
     if dataset == 'TUM':
       from tum import TUM
-      self.dset = TUM(*args, mode=self.mode, **kwargs)
+      self.dset = TUM(*args, mode=self.mode, two_stream=two_stream, dn_transform=dn_transform, **kwargs)
+      # self.dset = TUM(*args, mode=self.mode, **kwargs)
     elif dataset == '7Scenes':
       from seven_scenes import SevenScenes
       self.dset = SevenScenes(*args, real=self.real, mode=self.mode, **kwargs)
@@ -89,7 +91,10 @@ class MF(data.Dataset):
     clip  = [self.dset[i] for i in idx]
 
     if self.mode == 2:
-      imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0), 'd': torch.stack([c[0]['d'] for c in clip], dim=0)}
+      if self.two_stream:
+        imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0), 'd': torch.stack([c[0]['d'] for c in clip], dim=0), 'dn': torch.stack([c[0]['dn'] for c in clip], dim=0)}
+      else:
+        imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0), 'd': torch.stack([c[0]['d'] for c in clip], dim=0)}
     elif self.mode == 1:
       imgs = { 'd': torch.stack([c[0]['d'] for c in clip], dim=0)}
     else:
@@ -176,29 +181,49 @@ def main():
   from common.vis_utils import show_batch, show_stereo_batch, show_depth_batch
   from torchvision.utils import make_grid
   import torchvision.transforms as transforms
-
+  import os.path as osp
+  
   dataset = 'TUM'
-  data_path = '../data/deepslam_data/TUM'
+  data_path = '../data/deepslam_data/' + dataset
   seq = 'fr1'
   steps = 3
   skip = 5
    # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 5
+  two_stream = True
+  data_dir = osp.join('..', 'data', dataset)
+  depth_stats = np.loadtxt( osp.join(data_dir, seq, 'depth_stats.txt') )
+
   transform = transforms.Compose([
     transforms.Resize(256),
     # transforms.CenterCrop(224),
     transforms.ToTensor(),
-
+    transforms.Lambda(lambda x: x.float()),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
   ])
+  depth_transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Lambda(lambda x: x.float()),
+  ]) 
+  dn_transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.ToTensor() won't normalize int16 array to [0, 1]
+    transforms.ToTensor(),
+    # from [B, H, W] to [B, C, H, W] and normalization
+    transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / 65535.0),
+    transforms.Normalize(mean=depth_stats[0], std=np.sqrt(depth_stats[1]))
+  ])
+  
   target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
   kwargs = dict(scene=seq, data_path=data_path, transform=transform,
                 steps=steps, skip=skip)
-
   dset = MF(dataset=dataset, train=True, target_transform=target_transform,
-            depth_transform=transform, mode=mode, **kwargs)
-  print 'Loaded 7Scenes sequence {:s}, length = {:d}'.format(seq,
-    len(dset))
+            depth_transform=depth_transform, mode=mode, dn_transform=dn_transform, two_stream=two_stream, **kwargs)
+
+  print 'Loaded {:s} sequence {:s}, length = {:d}'.format(dataset, seq, len(dset))
   
   data_loader = data.DataLoader(dset, batch_size=5, shuffle=True,
     num_workers=num_workers)
@@ -227,9 +252,14 @@ def main():
       depth = imgs['d'].view(-1, *imgs['d'].shape[2:])
       print color.shape
       print depth.shape
+      print torch.max(depth), torch.min(depth)
+      if two_stream:
+        print 'size of dn image'
+        print imgs['dn'].shape
+        print torch.max(imgs['dn']), torch.min(imgs['dn'])
 
       lb = make_grid(color, nrow=3, padding=25)
-      rb = make_grid(depth.float()/65535.0, nrow=3, padding=25)
+      rb = make_grid(depth.float()/65535, nrow=3, padding=25)
 
       show_stereo_batch(lb, rb)
 

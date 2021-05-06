@@ -208,10 +208,10 @@ print 'Error in translation: median {:4.3f} m,  mean {:4.3f} m\n' \
     'Error in rotation: median {:4.3f} degrees, mean {:4.3f} degree'.format(np.median(t_loss), np.mean(t_loss),
                     np.median(q_loss), np.mean(q_loss))
 
-
+'''
 # create figure object
 fig = plt.figure()
-if args.dataset != '7Scenes':
+if args.dataset != '7Scenes' and args.dataset != 'TUM':
   ax = fig.add_subplot(111)
 else:
   ax = fig.add_subplot(111, projection='3d')
@@ -222,17 +222,23 @@ ss = max(1, int(len(data_set) / 1000))  # 100 for stairs
 # scatter the points and draw connecting line
 x = np.vstack((pred_poses[::ss, 0].T, targ_poses[::ss, 0].T))
 y = np.vstack((pred_poses[::ss, 1].T, targ_poses[::ss, 1].T))
-if args.dataset != '7Scenes':  # 2D drawing
+if args.dataset != '7Scenes' and args.dataset != 'TUM':  # 2D drawing
   ax.plot(x, y, c='b')
   ax.scatter(x[0, :], y[0, :], c='r')
   ax.scatter(x[1, :], y[1, :], c='g')
 else:
   z = np.vstack((pred_poses[::ss, 2].T, targ_poses[::ss, 2].T))
   for xx, yy, zz in zip(x.T, y.T, z.T):
-    ax.plot(xx, yy, zs=zz, c='b')
-  ax.scatter(x[0, :], y[0, :], zs=z[0, :], c='r', depthshade=0)
-  ax.scatter(x[1, :], y[1, :], zs=z[1, :], c='g', depthshade=0)
+    ax.plot(xx, yy, zz, c='b')
+  ax.scatter(x[0, :], y[0, :], z[0, :], c='r', label='prediction')
+  ax.scatter(x[1, :], y[1, :], z[1, :], c='g', label='ground truth')
   ax.view_init(azim=119, elev=13)
+
+  ax.set_title('{:s}'.format(args.scene))
+  ax.set_xlabel('x[m]')
+  ax.set_ylabel('y[m]')
+  ax.set_zlabel('z[m]')
+  ax.legend()
 
 if DISPLAY:
   plt.show(block=False)
@@ -254,3 +260,4 @@ if args.output_dir is not None:
   with open(result_filename, 'wb') as f:
     cPickle.dump({'targ_poses': targ_poses, 'pred_poses': pred_poses}, f)
   print '{:s} written'.format(result_filename)
+'''
