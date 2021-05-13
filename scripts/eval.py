@@ -44,6 +44,8 @@ parser.add_argument('--output_dir', type=str, default=None,
   help='Output image directory')
 parser.add_argument('--pose_graph', action='store_true',
   help='Turn on Pose Graph Optimization')
+parser.add_argument('--two_stream', action='store_true',
+  help='Turn on Two Stream CNN')
 args = parser.parse_args()
 if 'CUDA_VISIBLE_DEVICES' not in os.environ:
   os.environ['CUDA_VISIBLE_DEVICES'] = args.device
@@ -69,9 +71,9 @@ if (args.model.find('mapnet') >= 0) or args.pose_graph:
 
 # model
 feature_extractor = models.resnet34(pretrained=False)
-posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=False)
+posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=False, two_stream=args.two_stream)
 if (args.model.find('mapnet') >= 0) or args.pose_graph:
-  model = MapNet(mapnet=posenet)
+  model = MapNet(mapnet=posenet, two_stream=args.two_stream)
 else: # geoposenet use posenet model when evaluation
   model = posenet
 model.eval()
@@ -79,6 +81,9 @@ model.eval()
 # loss functions
 t_criterion = lambda t_pred, t_gt: np.linalg.norm(t_pred - t_gt)
 q_criterion = quaternion_angular_error
+# t_criterion = lambda t_pred, t_gt: np.abs(t_pred - t_gt)
+# q_criterion = lambda t_pred, t_gt: np.abs(t_pred - t_gt)
+
 
 # load weights
 weights_filename = osp.expanduser(args.weights)
@@ -94,12 +99,31 @@ else:
 data_dir = osp.join('..', 'data', args.dataset)
 stats_filename = osp.join(data_dir, args.scene, 'stats.txt')
 stats = np.loadtxt(stats_filename)
+depth_stats_filename = osp.join(data_dir, args.scene, 'depth_stats.txt')
+depth_stats = np.loadtxt(depth_stats_filename)
 # transformer
 data_transform = transforms.Compose([
   transforms.Resize(256),
   transforms.ToTensor(),
+  # transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
+  # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
   transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1]))])
+depth_transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.ToTensor() won't normalize int16 array to [0, 1]
+    transforms.ToTensor(),
+    # convenient for division operation
+	  transforms.Lambda(lambda x: x.float())
+  ])
 target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
+dn_transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.ToTensor() won't normalize int16 array to [0, 1]
+    transforms.ToTensor(),
+    # from [B, 1, H, W] to [B, C, H, W] and normalization
+	  transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / 65535.0),
+    transforms.Normalize(mean=depth_stats[0], std=np.sqrt(depth_stats[1]))
+  ])
 
 # read mean and stdev for un-normalizing predictions
 pose_stats_file = osp.join(data_dir, args.scene, 'pose_stats.txt')
@@ -125,7 +149,10 @@ if (args.model.find('mapnet') >= 0) or args.pose_graph:
   L = len(data_set.dset)
 elif args.dataset == 'TUM':
   from dataset_loaders.tum import TUM
-  data_set = TUM(**kwargs)
+  if args.two_stream:
+    data_set = TUM(mode=2, two_stream=True, depth_transform=depth_transform, dn_transform=dn_transform, **kwargs)
+  else:
+    data_set = TUM(**kwargs)
   L = len(data_set)
 elif args.dataset == '7Scenes':
   from dataset_loaders.seven_scenes import SevenScenes
@@ -137,7 +164,7 @@ elif args.dataset == 'RobotCar':
   L = len(data_set)
 else:
   raise NotImplementedError
-
+ 
 # loader (batch_size MUST be 1)
 batch_size = 1
 assert batch_size == 1
@@ -167,7 +194,7 @@ for batch_idx, (data, target) in enumerate(loader):
   idx = idx[len(idx) / 2]
 
   # output : 1 x 6 or 1 x STEPS x 6
-  _, output = step_feedfwd(data['c'], model, CUDA, train=False)
+  _, output = step_feedfwd(data, model, CUDA, train=False, two_stream=args.two_stream)
   s = output.size()
   output = output.cpu().data.numpy().reshape((-1, s[-1]))
   target = target.numpy().reshape((-1, s[-1]))
@@ -208,7 +235,7 @@ print 'Error in translation: median {:4.3f} m,  mean {:4.3f} m\n' \
     'Error in rotation: median {:4.3f} degrees, mean {:4.3f} degree'.format(np.median(t_loss), np.mean(t_loss),
                     np.median(q_loss), np.mean(q_loss))
 
-'''
+
 # create figure object
 fig = plt.figure()
 if args.dataset != '7Scenes' and args.dataset != 'TUM':
@@ -228,10 +255,12 @@ if args.dataset != '7Scenes' and args.dataset != 'TUM':  # 2D drawing
   ax.scatter(x[1, :], y[1, :], c='g')
 else:
   z = np.vstack((pred_poses[::ss, 2].T, targ_poses[::ss, 2].T))
-  for xx, yy, zz in zip(x.T, y.T, z.T):
-    ax.plot(xx, yy, zz, c='b')
-  ax.scatter(x[0, :], y[0, :], z[0, :], c='r', label='prediction')
-  ax.scatter(x[1, :], y[1, :], z[1, :], c='g', label='ground truth')
+  # for xx, yy, zz in zip(x.T, y.T, z.T):
+  #   ax.plot(xx, yy, zz, c='b')
+  # ax.scatter(x[0, :], y[0, :], z[0, :], c='r', label='prediction')
+  # ax.scatter(x[1, :], y[1, :], z[1, :], c='g', label='ground truth')
+  ax.plot(x[0, :], y[0, :], z[0, :], c='r', label='prediction')
+  ax.plot(x[1, :], y[1, :], z[1, :], c='g', label='ground truth')
   ax.view_init(azim=119, elev=13)
 
   ax.set_title('{:s}'.format(args.scene))
@@ -241,8 +270,8 @@ else:
   ax.legend()
 
 if DISPLAY:
-  plt.show(block=False)
-  # plt.show(block=True)
+  # plt.show(block=False)
+  plt.show(block=True)
 
 if args.output_dir is not None:
   model_name = args.model
@@ -251,6 +280,8 @@ if args.output_dir is not None:
   if args.pose_graph:
     model_name += '_pgo_{:s}'.format(vo_lib)
   experiment_name = '{:s}_{:s}_{:s}'.format(args.dataset, args.scene, model_name)
+  if args.two_stream:
+    experiment_name += '_2stream'
   image_filename = osp.join(osp.expanduser(args.output_dir),
     '{:s}.png'.format(experiment_name))
   fig.savefig(image_filename)
@@ -260,4 +291,3 @@ if args.output_dir is not None:
   with open(result_filename, 'wb') as f:
     cPickle.dump({'targ_poses': targ_poses, 'pred_poses': pred_poses}, f)
   print '{:s} written'.format(result_filename)
-'''

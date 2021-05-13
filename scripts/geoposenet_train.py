@@ -177,7 +177,8 @@ if color_jitter > 0:
   tforms.append(transforms.ColorJitter(brightness=color_jitter,
     contrast=color_jitter, saturation=color_jitter, hue=0.5))
 tforms.append(transforms.ToTensor())
-tforms.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+tforms.append(transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1])))
+# tforms.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
 data_transform = transforms.Compose(tforms)
 depth_transform = transforms.Compose([
     transforms.Resize(256),
