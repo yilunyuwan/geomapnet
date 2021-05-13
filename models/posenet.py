@@ -41,18 +41,25 @@ class PoseNet(nn.Module):
     self.dropout = nn.Dropout(p=self.droprate)
     self.two_stream = two_stream
     fe_out_planes = feature_extractor.fc.in_features
-    # RGB feature extractor
-    # replace the last FC layer in feature extractor
-    self.rgb_feature_extractor = feature_extractor
-    self.rgb_feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
-    self.rgb_feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
-    # Depth feature extractor
-    # replace the last FC layer in feature extractor
-    self.depth_feature_extractor = feature_extractor
-    self.depth_feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
-    self.depth_feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
 
-    self.fc_rgbd_fusion = nn.Linear(2*feat_dim, feat_dim)
+    if self.two_stream:
+      # RGB feature extractor
+      # replace the last FC layer in feature extractor
+      self.rgb_feature_extractor = feature_extractor
+      self.rgb_feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
+      self.rgb_feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
+      # Depth feature extractor
+      # replace the last FC layer in feature extractor
+      self.depth_feature_extractor = feature_extractor
+      self.depth_feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
+      self.depth_feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
+      
+      self.fc_rgbd_fusion = nn.Linear(2*feat_dim, feat_dim)
+    else:
+      self.feature_extractor = feature_extractor
+      self.feature_extractor.avgpool = nn.AdaptiveAvgPool2d(1)
+      self.feature_extractor.fc = nn.Linear(fe_out_planes, feat_dim)
+
     self.fc_xyz  = nn.Linear(feat_dim, 3)
     self.fc_wpqr = nn.Linear(feat_dim, 3)
     if filter_nans:
@@ -60,7 +67,10 @@ class PoseNet(nn.Module):
 
     # initialize
     if pretrained:
-      init_modules = [self.rgb_feature_extractor.fc, self.depth_feature_extractor.fc, self.fc_rgbd_fusion, self.fc_xyz, self.fc_wpqr]
+      if two_stream:
+        init_modules = [self.rgb_feature_extractor.fc, self.fc_xyz, self.fc_wpqr, self.depth_feature_extractor.fc, self.fc_rgbd_fusion]
+      else:
+        init_modules = [self.feature_extractor.fc, self.fc_xyz, self.fc_wpqr]
     else:
       init_modules = self.modules()
 
@@ -71,20 +81,27 @@ class PoseNet(nn.Module):
           nn.init.constant_(m.bias.data, 0)
 
   def forward(self, rgbs, depths=None):
-    # RGB feature extractor
-    x = self.rgb_feature_extractor(rgbs)
-    x = F.relu(x)
-    if self.droprate > 0:
-      x = self.dropout(x)
     if self.two_stream:
+      if depths is None: 
+        raise Exception('Depth image cannot be None when using two stream CNN')
+      # RGB feature extractor
+      x = self.rgb_feature_extractor(rgbs)
+      x = F.relu(x)
       # Depth feature extractor
       y = self.depth_feature_extractor(depths)
       y = F.relu(y)
-      if self.droprate > 0:
-        y = self.dropout(y)
       # concatenate x and y
       fuse = torch.cat((x, y), dim=1)
+      if self.droprate > 0:
+        x = self.dropout(x)
       x = self.fc_rgbd_fusion(fuse)
+      if self.droprate > 0:
+        x = self.dropout(x)
+    else: # one-stream CNN
+      x = self.feature_extractor(rgbs)
+      x = F.relu(x)
+      if self.droprate > 0:
+        x = self.dropout(x)
 
     xyz  = self.fc_xyz(x)
     wpqr = self.fc_wpqr(x)

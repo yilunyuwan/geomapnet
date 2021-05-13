@@ -31,13 +31,19 @@ data_transform = transforms.Compose([
   transforms.Resize(256),
   # transforms.RandomCrop(crop_size),
   transforms.ToTensor()])
-
+depth_transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.ToTensor() won't normalize int16 array to [0, 1]
+    transforms.ToTensor(),
+    # convenient for division operation
+	  transforms.Lambda(lambda x: x.float()/65535.0)
+  ])
 # dataset loader
 data_dir = osp.join('..', 'data', 'deepslam_data', args.dataset)
 kwargs = dict(scene=args.scene, data_path=data_dir, train=True, real=False,
   transform=data_transform)
 if args.dataset == 'TUM':
-  dset = TUM(**kwargs)
+  dset = TUM(mode=2, depth_transform=depth_transform, **kwargs)
 elif args.dataset == '7Scenes':
   dset = SevenScenes(**kwargs)
 elif args.dataset == 'RobotCar':
@@ -55,7 +61,7 @@ loader = DataLoader(dset, batch_size=batch_size, num_workers=num_workers,
 acc = np.zeros((3, 256, 341))
 sq_acc = np.zeros((3, 256, 341))
 for batch_idx, (imgs, _) in enumerate(loader):
-  imgs = imgs['c'].numpy()
+  imgs = imgs['d'].numpy()
   acc += np.sum(imgs, axis=0)
   sq_acc += np.sum(imgs**2, axis=0)
 
@@ -74,6 +80,6 @@ std_p /= N
 std_p -= (mean_p ** 2)
 print 'Std. pixel = ', std_p
 
-output_filename = osp.join('..', 'data', args.dataset, args.scene, 'stats.txt')
+output_filename = osp.join('..', 'data', args.dataset, args.scene, 'depth_stats.txt')
 np.savetxt(output_filename, np.vstack((mean_p, std_p)), fmt='%8.7f')
 print '{:s} written'.format(output_filename)

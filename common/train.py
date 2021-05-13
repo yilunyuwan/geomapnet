@@ -124,6 +124,10 @@ class Trainer(object):
     self.config['log_visdom'] = section.getboolean('visdom')
     self.config['print_freq'] = section.getint('print_freq')
 
+    section = settings['hyperparameters']
+    self.config['dropout'] = section.getfloat('dropout')
+    self.config['skip'] = section.getint('skip')
+
     self.logdir = osp.join(os.getcwd(), 'logs', self.experiment)
     if not osp.isdir(self.logdir):
       os.makedirs(self.logdir)
@@ -246,7 +250,7 @@ class Trainer(object):
           elif lstm:
             loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
           else:
-            loss, _ = step_feedfwd(data['c'], self.model, self.config['cuda'],
+            loss, _ = step_feedfwd(data, self.model, self.config['cuda'],two_stream=self.two_stream,
               **kwargs)
 
           val_loss.update(loss)
@@ -325,7 +329,7 @@ class Trainer(object):
         elif lstm:
           loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
         else:
-          loss, abs_t_loss, abs_q_loss, vo_t_loss, vo_q_loss = step_feedfwd(data['c'], self.model, self.config['cuda'],
+          loss, abs_t_loss, abs_q_loss, vo_t_loss, vo_q_loss = step_feedfwd(data, self.model, self.config['cuda'], two_stream=self.two_stream,
             **kwargs)
 
         train_batch_time.update(time.time() - end)
@@ -453,7 +457,7 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
     return 0, 0, 0, 0
 
 def step_feedfwd(data, model, cuda, target=None, criterion=None, optim=None,
-    train=True, max_grad_norm=0.0):
+    train=True, max_grad_norm=0.0, two_stream=False):
   """
   training/validation step for a feedforward NN
   :param data: 
@@ -469,11 +473,17 @@ def step_feedfwd(data, model, cuda, target=None, criterion=None, optim=None,
   if train:
     assert criterion is not None
 
-  data_var = Variable(data, requires_grad=train)
+  data_var = Variable(data['c'], requires_grad=train)
   if cuda:
     data_var = data_var.cuda(async=True)
   with torch.set_grad_enabled(train):
-    output = model(data_var)
+    if two_stream:
+      dn_var = Variable(data['dn'], requires_grad=False)
+      if cuda:
+        dn_var = dn_var.cuda(async=True)
+      output = model(data_var, dn_var)
+    else:
+      output = model(data_var)
 
   if criterion is not None:
     if cuda:
