@@ -8,7 +8,7 @@ This module implements the various loss functions (a.k.a. criterions) used
 in the paper
 """
 
-from pose_utils import calc_vo_logq2q
+from pose_utils import calc_vo_logq2q, q_angular_error, qexp_t
 import pose_utils
 from reconstruction_utils import reconstruction
 import torch
@@ -57,6 +57,31 @@ class PoseNetCriterion(nn.Module):
       self.saq
     return loss, abs_t_loss, abs_q_loss, 0, 0
 
+class EvalCriterion(nn.Module):
+  def __init__(self, t_loss_fn=None, q_loss_fn=q_angular_error):
+    super(EvalCriterion, self).__init__()
+    self.t_loss_fn = t_loss_fn
+    self.q_loss_fn = q_loss_fn
+
+  def forward(self, pred, targ):
+    """
+    :param pred: N x steps x 6
+    :param targ: N x steps x 6
+    :return: 
+    t_RSE_loss: (N*steps) x 1
+    q_loss: (N*steps) x 1
+    """
+    s = pred.size()
+    pred = pred.view(-1, *s[2:])
+    targ = targ.view(-1, *s[2:])
+    pred_q = qexp_t(pred[:, 3:])
+    targ_q = qexp_t(targ[:, 3:])
+    t_SE_loss = torch.sum(torch.pow(torch.sub(pred[:, :3], targ[:, :3]),2), dim=1, keepdim=True)
+    t_RSE_loss = torch.sqrt(t_SE_loss).mean()
+    q_loss = self.q_loss_fn(pred_q, targ_q)
+    # print t_RSE_loss.size(), q_loss.size()
+    return t_RSE_loss, q_loss
+
 """
 modified from MapNetCriterion
 """
@@ -92,7 +117,7 @@ class GeoPoseNetCriterion(nn.Module):
 
 
 
-  def forward(self, pred, targ, color, depth):
+  def forward(self, pred, targ, color, depth=None):
     """
     :param pred: N x T x 6
     :param targ: N x T x 6
@@ -108,7 +133,11 @@ class GeoPoseNetCriterion(nn.Module):
                             targ.view(-1, *s[2:])[:, :3])
     q_loss = self.q_loss_fn(pred.view(-1, *s[2:])[:, 3:],
                             targ.view(-1, *s[2:])[:, 3:])
-
+    # print t_loss
+    '''
+    t_loss = torch.sum(torch.pow(pred.view(-1, *s[2:])[:, :3]- targ.view(-1, *s[2:])[:, :3],2), dim=1)
+    t_loss = torch.sqrt(t_loss).mean()
+    '''
     abs_loss = t_loss + 3 * q_loss 
 
     # abs_loss = torch.exp(-self.sax) * t_loss + self.sax + \
@@ -128,7 +157,7 @@ class GeoPoseNetCriterion(nn.Module):
     # vo_loss = torch.exp(-self.srx) * vo_t_loss + self.srx + \
     #           torch.exp(-self.srq) * vo_q_loss + self.srq
       
-    vo_loss = (vo_t_loss + 3 * vo_q_loss)
+    vo_loss = 10 * (vo_t_loss + 3 * vo_q_loss)
     
     reconstruction_loss = torch.Tensor([0]).type_as(t_loss)
     '''

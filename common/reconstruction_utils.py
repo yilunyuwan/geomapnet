@@ -383,14 +383,14 @@ def main():
   data_path = '../data/deepslam_data/TUM'
   seq = 'desk'
   steps = 3
-  skip = 5
+  skip = 10
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
   transform = transforms.Compose([
     transforms.Resize(256),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
   ])
   depth_transform = transforms.Compose([
     transforms.Resize(256),
@@ -403,8 +403,7 @@ def main():
 
   dset = MF(dataset=dataset, train=True, target_transform=target_transform,
             depth_transform=depth_transform, mode=mode, **kwargs)
-  print 'Loaded TUM sequence {:s}, length = {:d}'.format(seq,
-    len(dset))
+  print 'Loaded TUM sequence {:s}, length = {:d}'.format(seq, len(dset))
   
   data_loader = data.DataLoader(dset, batch_size=5, shuffle=True,
     num_workers=num_workers)
@@ -462,6 +461,7 @@ def main():
 
     projected_imgs_valid = projected_imgs * valid_points
     tgt_imgs_valid = tgt_imgs * valid_points
+
     rgb_diff = torch.abs(projected_imgs_valid - tgt_imgs_valid)
     reconstruction_loss = torch.sum(rgb_diff) / torch.sum((valid_points>0).float()) / 3.0
     print 'reconstruction_loss under ground-truth pose:{:f}'.format(reconstruction_loss)

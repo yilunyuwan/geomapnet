@@ -20,7 +20,7 @@ class MF(data.Dataset):
   Returns multiple consecutive frames, and optionally VOs
   """
   def __init__(self, dataset, include_vos=False, no_duplicates=False,
-               mode=0, two_stream=False, dn_transform=None,*args, **kwargs):
+               mode=0, dn_transform=None, *args, **kwargs):
     """
     :param steps: Number of frames to return on every call
     :param skip: Number of frames to skip
@@ -40,11 +40,10 @@ class MF(data.Dataset):
     self.vo_func = kwargs.pop('vo_func', calc_vos_simple)
     self.no_duplicates = no_duplicates
     self.mode = mode
-    self.two_stream = two_stream
 
     if dataset == 'TUM':
       from tum import TUM
-      self.dset = TUM(*args, mode=self.mode, two_stream=two_stream, dn_transform=dn_transform, **kwargs)
+      self.dset = TUM(*args, mode=self.mode, dn_transform=dn_transform, **kwargs)
       # self.dset = TUM(*args, mode=self.mode, **kwargs)
     elif dataset == '7Scenes':
       from seven_scenes import SevenScenes
@@ -90,13 +89,10 @@ class MF(data.Dataset):
     idx = self.get_indices(index)
     clip  = [self.dset[i] for i in idx]
 
-    if self.mode == 2:
-      if self.two_stream:
-        imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0), 'd': torch.stack([c[0]['d'] for c in clip], dim=0), 'dn': torch.stack([c[0]['dn'] for c in clip], dim=0)}
-      else:
-        imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0), 'd': torch.stack([c[0]['d'] for c in clip], dim=0)}
+    if self.mode >= 2:
+      imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0), 'd': torch.stack([c[0]['d'] for c in clip], dim=0), 'dn': torch.stack([c[0]['dn'] for c in clip], dim=0)}
     elif self.mode == 1:
-      imgs = { 'd': torch.stack([c[0]['d'] for c in clip], dim=0)}
+      imgs = { 'dn': torch.stack([c[0]['dn'] for c in clip], dim=0)}
     else:
       imgs = {'c': torch.stack([c[0]['c'] for c in clip], dim=0)}
     poses = torch.stack([c[1] for c in clip], dim=0)
@@ -241,8 +237,8 @@ def main():
       print color.shape
       show_batch(make_grid(color, nrow=3, padding=25))
     elif mode == 1:
-      print imgs['d'].shape
-      depth = imgs['d'].view(-1, *imgs['d'].shape[2:])
+      print imgs['dn'].shape
+      depth = imgs['dn'].view(-1, *imgs['dn'].shape[2:])
       print depth.shape
       show_depth_batch(make_grid(depth, nrow=3, padding=25))
     elif mode == 2:
@@ -253,10 +249,10 @@ def main():
       print color.shape
       print depth.shape
       print torch.max(depth), torch.min(depth)
-      if two_stream:
-        print 'size of dn image'
-        print imgs['dn'].shape
-        print torch.max(imgs['dn']), torch.min(imgs['dn'])
+
+      print 'size of dn image'
+      print imgs['dn'].shape
+      print torch.max(imgs['dn']), torch.min(imgs['dn'])
 
       lb = make_grid(color, nrow=3, padding=25)
       rb = make_grid(depth.float()/65535, nrow=3, padding=25)

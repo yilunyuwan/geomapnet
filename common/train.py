@@ -52,6 +52,45 @@ def load_state_dict(model, state_dict):
 
   model.load_state_dict(new_state_dict)
 
+def load_state_dict_2stream(model, rgb_state_dict, depth_state_dict, strict=False):
+  """
+  Loads a state dict when the model has some prefix before the parameter names
+  :param model: 
+  :param state_dict: 
+  :return: loaded model
+  """
+  model_names = [n for n,_ in model.named_parameters()]
+  rgb_state_names = [n for n in rgb_state_dict.keys()]
+  detph_state_names = [n for n in depth_state_dict.keys()]
+
+  # find prefix for the model and state dicts from the first param name
+  if model_names[0].find(rgb_state_names[0]) >= 0:
+    model_prefix = model_names[0].replace(rgb_state_names[0], '')
+    state_prefix = None
+  elif rgb_state_names[0].find(model_names[0]) >= 0:
+    state_prefix = rgb_state_names[0].replace(model_names[0], '')
+    model_prefix = None
+  else:
+    print 'Could not find the correct prefixes between {:s} and {:s}'.\
+      format(model_names[0], rgb_state_names[0])
+    raise KeyError
+
+  from collections import OrderedDict
+  new_state_dict = OrderedDict()
+  for k,v in rgb_state_dict.items():
+    if state_prefix is None:
+      k = model_prefix + k
+    else:
+      k = k.replace(state_prefix, '')
+    new_state_dict[k] = v
+  for k,v in depth_state_dict.items():
+    if state_prefix is None:
+      k = model_prefix + k
+    else:
+      k = k.replace(state_prefix, '')
+    new_state_dict[k] = v
+  model.load_state_dict(new_state_dict, strict=strict)
+
 def safe_collate(batch):
   """
   Collate function for DataLoader that filters out None's
@@ -74,7 +113,7 @@ def seed_worker(worker_id):
 class Trainer(object):
   def __init__(self, model, optimizer, train_criterion, config_file, experiment,
       train_dataset, val_dataset, device, checkpoint_file=None,
-      resume_optim=False, val_criterion=None, two_stream=False):
+      resume_optim=False, val_criterion=None, two_stream_mode=0):
     """
     General purpose training script
     :param model: Network model
@@ -98,7 +137,7 @@ class Trainer(object):
       self.val_criterion = val_criterion
     self.experiment = experiment
     self.optimizer = optimizer
-    self.two_stream = two_stream
+    self.two_stream_mode = two_stream_mode
     if 'CUDA_VISIBLE_DEVICES' not in os.environ:
       os.environ['CUDA_VISIBLE_DEVICES'] = device
 
@@ -233,32 +272,42 @@ class Trainer(object):
     """
     for epoch in xrange(self.start_epoch, self.config['n_epochs']):
       # VALIDATION
-      if self.config['do_val'] and ((epoch % self.config['val_freq'] == 0) or
+      if epoch >0 and self.config['do_val'] and ((epoch % self.config['val_freq'] == 0) or
                                       (epoch == self.config['n_epochs']-1)) :
+        print 'Validation'
         val_batch_time = Logger.AverageMeter()
-        val_loss = Logger.AverageMeter()
+        # val_loss = Logger.AverageMeter()
         self.model.eval()
         end = time.time()
         val_data_time = Logger.AverageMeter()
+        t_loss_all = []
+        q_loss_all = []
+        output_all = []
         for batch_idx, (data, target) in enumerate(self.val_loader):
+          if batch_idx % self.config['print_freq'] == 0:
+            print 'Batch {:d} / {:d}'.format(batch_idx, len(self.val_loader))
+
           val_data_time.update(time.time() - end)
 
           kwargs = dict(target=target, criterion=self.val_criterion,
             optim=self.optimizer, train=False)
           if geopose:
-            loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], two_stream=self.two_stream, **kwargs)
-          elif lstm:
-            loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
+            t_loss, q_loss, output = step_geopose(data, self.model, self.config['cuda'], two_stream_mode=self.two_stream_mode, **kwargs)
+            # val_loss.update(t_loss)
           else:
-            loss, _ = step_feedfwd(data, self.model, self.config['cuda'],two_stream=self.two_stream,
-              **kwargs)
-
+            raise NotImplementedError
+          # elif lstm:
+          #   loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
+          # else:
+          #   loss, _ = step_feedfwd(data, self.model, self.config['cuda'],two_stream=self.two_stream,
+          #     **kwargs)
+          '''
           val_loss.update(loss)
           val_batch_time.update(time.time() - end)
 
           if batch_idx % self.config['print_freq'] == 0:
             if geopose:
-              print 'Train {:s}: Epoch {:d}\t' \
+              print 'Val {:s}: Epoch {:d}\t' \
                     'Batch {:d}/{:d}\t' \
                     'Data Time {:.4f} ({:.4f})\t' \
                     'Batch Time {:.4f} ({:.4f})\t' \
@@ -285,11 +334,18 @@ class Trainer(object):
                 val_batch_time.avg, loss)
             if self.config['log_visdom']:
               self.vis.save(envs=[self.vis_env])
-
           end = time.time()
+          '''
+          # print len(t_loss), q_loss[0]
+          # t_loss_all.extend(t_loss)
+          q_loss_all.extend(q_loss)
+          t_loss_all.append(t_loss)
+          output_all.extend(output)
+          # q_loss_all.append(q_loss)
 
-        print 'Val {:s}: Epoch {:d}, val_loss {:f}'.format(self.experiment,
-          epoch, val_loss.avg)
+        print 'Val {:s}: Epoch {:d}\n' \
+        'Error in translation: median {:4.3f} m,  mean {:4.3f} m\n' \
+        'Error in rotation: median {:4.3f} degrees, mean {:4.3f} degree' .format(self.experiment, epoch, np.median(t_loss_all), np.mean(t_loss_all), np.median(q_loss_all), np.mean(q_loss_all))
 
         if self.config['log_visdom']:
           self.vis.updateTrace(X=np.asarray([epoch]),
@@ -317,6 +373,8 @@ class Trainer(object):
       self.model.train()
       train_data_time = Logger.AverageMeter()
       train_batch_time = Logger.AverageMeter()
+      # train_t_loss_accum = Logger.AverageMeter()
+      # train_q_loss_accum = Logger.AverageMeter()
       end = time.time()
       for batch_idx, (data, target) in enumerate(self.train_loader):
         train_data_time.update(time.time() - end)
@@ -325,7 +383,9 @@ class Trainer(object):
           optim=self.optimizer, train=True,
           max_grad_norm=self.config['max_grad_norm'])
         if geopose:
-          loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], two_stream=self.two_stream, **kwargs)
+          loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss = step_geopose(data, self.model, self.config['cuda'], two_stream_mode=self.two_stream_mode, **kwargs)
+          # train_t_loss_accum.update(t_loss)
+          # train_q_loss_accum.update(q_loss)
         elif lstm:
           loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
         else:
@@ -395,7 +455,9 @@ class Trainer(object):
             self.vis.save(envs=[self.vis_env])
 
         end = time.time()
-
+      
+      # print 'Train {:s}: Epoch {:d}\n' \
+      #       'Avg T Loss: {:f}\t Avg Q Loss: {:f}\t'.format(self.experiment, epoch, train_t_loss_accum.avg, train_q_loss_accum.avg)
     # Save final checkpoint
     epoch = self.config['n_epochs']
     self.save_checkpoint(epoch)
@@ -407,7 +469,7 @@ class Trainer(object):
 modified from step_feedfwd
 """
 def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
-    train=True, max_grad_norm=0.0, two_stream=False):
+    train=True, max_grad_norm=0.0, two_stream_mode=0):
   """
   training/validation step for a feedforward NN
   :param data: {'c': B x STEPS x 3 x H x W, 'd': B x STEPS x 1 x H x W}
@@ -423,27 +485,49 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
   if train:
     assert criterion is not None
 
-  color_var = Variable(data['c'], requires_grad=False)
-  depth_var = Variable(data['d'], requires_grad=False)
-  if cuda:
-    color_var = color_var.cuda(async=True)
-    depth_var = depth_var.cuda(async=True)
+  if two_stream_mode == 0:
+    color_var = Variable(data['c'], requires_grad=False)
+    if cuda:
+      color_var = color_var.cuda(async=True)
+  elif two_stream_mode == 1:
+    dn_var = Variable(data['dn'], requires_grad=False)
+    if cuda:
+      dn_var = dn_var.cuda(async=True)
+  else:
+    color_var = Variable(data['c'], requires_grad=False)
+    depth_var = Variable(data['d'], requires_grad=False)
+    dn_var = Variable(data['dn'], requires_grad=False)
+    if cuda:
+      color_var = color_var.cuda(async=True)
+      dn_var = dn_var.cuda(async=True)
+      depth_var = depth_var.cuda(async=True)
+
   with torch.set_grad_enabled(train):
-    if two_stream:
-      dn_var = Variable(data['dn'], requires_grad=False)
-      if cuda:
-        dn_var = dn_var.cuda(async=True)
-      output = model(color_var, dn_var)
-    else:
+    if two_stream_mode == 0:
       output = model(color_var)
+    elif two_stream_mode == 1:
+      output = model(dn_var)
+    else:
+      output = model(color_var, dn_var)
 
   if criterion is not None:
     if cuda:
       target = target.cuda(async=True)
 
     target_var = Variable(target, requires_grad=False)
+
+    if not train:
+      with torch.set_grad_enabled(False):
+        # evaluation criterion
+        t_loss, q_loss = criterion(output, target_var)
+        # return t_loss.tolist(), q_loss.tolist()
+        return t_loss, q_loss, output
+
     with torch.set_grad_enabled(train):
-      loss, t_loss, q_loss, vo_t_loss, vo_q_loss,reconstruction_loss, ssim_loss = criterion(output, target_var, color_var, depth_var)
+      if two_stream_mode >= 2:
+        loss, t_loss, q_loss, vo_t_loss, vo_q_loss,reconstruction_loss, ssim_loss = criterion(output, target_var, color_var, depth_var)
+      else:
+        loss, t_loss, q_loss, vo_t_loss, vo_q_loss,reconstruction_loss, ssim_loss = criterion(output, target_var, None, None)
 
     if train:
       optim.learner.zero_grad()
@@ -454,10 +538,10 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
 
     return loss.item(), t_loss.item(), q_loss.item(), vo_t_loss.item(),vo_q_loss.item(), reconstruction_loss.item(), ssim_loss.item()
   else:
-    return 0, 0, 0, 0
+    return 0, output
 
 def step_feedfwd(data, model, cuda, target=None, criterion=None, optim=None,
-    train=True, max_grad_norm=0.0, two_stream=False):
+    train=True, max_grad_norm=0.0, two_stream_mode=0):
   """
   training/validation step for a feedforward NN
   :param data: 
@@ -477,7 +561,7 @@ def step_feedfwd(data, model, cuda, target=None, criterion=None, optim=None,
   if cuda:
     data_var = data_var.cuda(async=True)
   with torch.set_grad_enabled(train):
-    if two_stream:
+    if two_stream_mode >= 2:
       dn_var = Variable(data['dn'], requires_grad=False)
       if cuda:
         dn_var = dn_var.cuda(async=True)

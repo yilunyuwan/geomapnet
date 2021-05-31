@@ -19,7 +19,7 @@ from common.pose_utils import process_poses4tum
 
 class TUM(data.Dataset):
     def __init__(self, scene, data_path, train, 
-    transform=None, depth_transform=None, dn_transform=None,target_transform=None, mode=0, seed=7, real=False, skip_images=False, two_stream=False):
+    transform=None, depth_transform=None, dn_transform=None,target_transform=None, mode=0, seed=7, real=False, skip_images=False, gt_path='associate_gt_fill.txt'):
       """
       :param scene: scene name ['fr1', 'fr2']
       :param data_path: root TUM data directory.
@@ -39,7 +39,6 @@ class TUM(data.Dataset):
       self.dn_transform = dn_transform
       self.target_transform = target_transform
       self.skip_images = skip_images
-      self.two_stream = two_stream
       np.random.seed(seed)
 
       # directories
@@ -63,7 +62,8 @@ class TUM(data.Dataset):
       for seq in seqs:
         seq_dir = osp.join(base_dir, seq)
         seq_data_dir = osp.join(data_dir, seq)
-        associate_gt_path = osp.join(seq_dir, 'associate_gt_fill.txt')
+        # associate_gt_path = osp.join(seq_dir, 'associate_gt.txt')
+        associate_gt_path = osp.join(seq_dir, gt_path)
         rgbs = np.loadtxt(associate_gt_path, dtype=str, usecols=1)
         depths = np.loadtxt(associate_gt_path, dtype=str, usecols=3)
         pss = np.loadtxt(associate_gt_path, usecols=(5, 6, 7, 11, 8, 9, 10))
@@ -124,13 +124,10 @@ class TUM(data.Dataset):
       if self.skip_images:
         return img, pose
 
-      if self.mode == 2 and self.transform is not None and self.depth_transform is not None:
-        if self.two_stream and self.dn_transform is not None:
-          img = {'c': self.transform(img['c']), 'd': self.depth_transform(img['d']), 'dn': self.dn_transform(img['d'])}
-        else:
-          img = {'c': self.transform(img['c']), 'd': self.depth_transform(img['d'])}
-      elif self.mode == 1 and self.depth_transform is not None:
-        img = {'d': self.depth_transform(img['d'])}
+      if self.mode >= 2 and self.transform is not None and self.depth_transform is not None and self.dn_transform is not None:
+        img = {'c': self.transform(img['c']), 'd': self.depth_transform(img['d']), 'dn': self.dn_transform(img['d'])}
+      elif self.mode == 1 and self.dn_transform is not None:
+        img = {'dn': self.dn_transform(img['d'])}
       elif self.mode == 0 and self.transform is not None:
         img = {'c': self.transform(img['c'])}
       else:
@@ -148,26 +145,37 @@ def main():
   from torchvision.utils import make_grid
   import torchvision.transforms as transforms
   import torch
+  import numpy as np
+
   seq = 'desk'
   mode = 2
-  num_workers = 6
+  num_workers = 0
+  data_dir = osp.join('..', 'data', 'TUM')
+  stats_file = osp.join(data_dir, seq, 'stats.txt')
+  stats = np.loadtxt(stats_file)
+  depth_stats = np.loadtxt( osp.join(data_dir, seq, 'depth_stats.txt') )
+  print stats
+  print depth_stats
   transform = transforms.Compose([
     transforms.Resize(256),
     # transforms.CenterCrop(224),
     transforms.ToTensor(),
-    # transforms.Normalize(mean=[0.485, 0.456, 0.406],
-    #   std=[0.229, 0.224, 0.225])
+    transforms.Lambda(lambda x: x.float()),
+    # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    # transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1]))
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
   ])
+
   dn_transform = transforms.Compose([
     transforms.Resize(256),
     # transforms.ToTensor() won't normalize int16 array to [0, 1]
     transforms.ToTensor(),
     # from [B, H, W] to [B, C, H, W] and normalization
 	  transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / 65535),
-    # transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    transforms.Normalize(mean=depth_stats[0], std=np.sqrt(depth_stats[1]))
   ])
-  dset = TUM(seq, '../data/deepslam_data/TUM', True, transform,
-    depth_transform=transform, mode=mode, dn_transform=dn_transform, two_stream=True)
+  dset = TUM(seq, '../data/deepslam_data/TUM', train=False, transform=transform,
+    depth_transform=transform, mode=mode, dn_transform=dn_transform)
   print 'Loaded TUM sequence {:s}, length = {:d}'.format(seq,
     len(dset))
 
@@ -183,10 +191,13 @@ def main():
     elif mode == 1:
       show_depth_batch(make_grid(imgs['d'], nrow=1, padding=25))
     elif mode == 2:
-      lb = make_grid(imgs['c'], nrow=1, padding=25)
+      color_show = (imgs['c'] + 1.0) / 2.0
+      # color_show = imgs['c']
+      lb = make_grid(color_show, nrow=1, padding=25)
       rb = make_grid(imgs['d'].float()/65535.0, nrow=1, padding=25)
       print imgs['dn'].shape
-      print torch.max(imgs['dn']), torch.min(imgs['dn'])
+      print torch.max(imgs['c']), torch.min(imgs['c']), torch.mean(imgs['c'])
+      print imgs['c'].dtype
       show_stereo_batch(lb, rb)
 
     batch_count += 1

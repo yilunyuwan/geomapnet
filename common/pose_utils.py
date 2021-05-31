@@ -138,6 +138,18 @@ def qexp_t_safe(q):
                                   dtype=np.float32))
   return q
 
+def q_angular_error(q1, q2):
+  """
+  angular error between N quaternions
+  :param q1: N x 4
+  :param q2: N x 4
+  :return: N x 1
+  """
+  d = torch.abs(vdot(q1, q2))
+  d = torch.clamp(d, max=1, min=0)
+  theta = torch.acos(d) * 180 / torch.acos(torch.zeros(1).type_as(d))
+  return theta
+
 def qlog_t_safe(q):
   """
   Applies the log map to a quaternion (safe implementation that does not
