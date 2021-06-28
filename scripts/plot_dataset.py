@@ -29,9 +29,8 @@ import cPickle
 # config
 parser = argparse.ArgumentParser(description='Evaluation script for PoseNet and'
                                              'MapNet variants')
-parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM'),
-                    help='Dataset')
-parser.add_argument('--scene', type=str, help='Scene name')
+parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM', 'AICL_NUIM'), help='Dataset', default='AICL_NUIM')
+parser.add_argument('--scene', type=str, help='Scene name', default='livingroom')
 parser.add_argument('--weights', type=str, help='trained weights to load')
 parser.add_argument('--model', choices=('posenet', 'mapnet', 'mapnet++'),
   help='Model to use (mapnet includes both MapNet and MapNet++ since their'
@@ -93,7 +92,7 @@ seed = 7
 #   sys.exit(-1)
 
 data_dir = osp.join('..', 'data', args.dataset)
-stats_filename = osp.join(data_dir, args.scene, 'stats.txt')
+stats_filename = osp.join(data_dir, args.scene, 'rgb_stats.txt')
 stats = np.loadtxt(stats_filename)
 # transformer
 data_transform = transforms.Compose([
@@ -110,7 +109,7 @@ target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
 train = not args.val
 data_dir = osp.join('..', 'data', 'deepslam_data', args.dataset)
 kwargs = dict(scene=args.scene, data_path=data_dir, train=train,
-  transform=data_transform, target_transform=target_transform, seed=seed)
+  transform=data_transform, target_transform=target_transform, seed=seed, gt_path='associate_gt.txt')
 
 seq_names, prefix, suffix = None, None, None
 if args.dataset == 'TUM':
@@ -127,6 +126,14 @@ if args.dataset == 'TUM':
   elif args.scene == 'cabinet':
     seq_names = ['E1', 'E2', 'E3', 'E4', 'E5']
     suffix = '_pre_registereddata'
+  else:
+    raise NotImplementedError
+elif args.dataset == 'AICL_NUIM':
+  from dataset_loaders.tum import TUM
+  if args.scene == 'livingroom':
+    seq_names = ['livingroom1', 'livingroom2', 'living_room_traj0_frei_png', 'living_room_traj1_frei_png', 'living_room_traj2_frei_png', 'living_room_traj3_frei_png']
+  elif args.scene == 'office':
+    seq_names = ['office1', 'office2', 'office_traj0_frei_png', 'office_traj1_frei_png', 'office_traj2_frei_png', 'office_traj3_frei_png']
   else:
     raise NotImplementedError
 elif args.dataset == '7Scenes':
@@ -151,7 +158,7 @@ for name in seq_names:
     seq_path = seq_path + suffix
   seq_kwargs = dict(kwargs, draw_seq=seq_path)
  
-  if args.dataset == 'TUM':
+  if args.dataset == 'TUM' or args.dataset == 'AICL_NUIM':
     data_set = TUM(**seq_kwargs)
   elif args.dataset == '7Scenes':
     try:
@@ -195,7 +202,7 @@ targ_poses = np.zeros((L, 7))  # store all target poses
 '''
 # create figure object
 fig = plt.figure()
-if args.dataset != '7Scenes' and args.dataset != 'TUM':
+if args.dataset != '7Scenes' and args.dataset != 'TUM' and args.dataset != 'AICL_NUIM':
   ax = fig.add_subplot(111)
 else:
   ax = fig.add_subplot(111, projection='3d')

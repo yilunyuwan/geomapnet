@@ -379,14 +379,15 @@ def main():
   from dataset_loaders.composite import MF
   from ssim import ssim, ms_ssim
 
-  dataset = 'TUM'
-  data_path = '../data/deepslam_data/TUM'
-  seq = 'desk'
+  dataset = 'AICL_NUIM'
+  data_path = '../data/deepslam_data/AICL_NUIM'
+  seq = 'livingroom'
   steps = 3
   skip = 10
   # mode = 2: rgb and depth; 1: only depth; 0: only rgb
   mode = 2
   num_workers = 6
+
   transform = transforms.Compose([
     transforms.Resize(256),
     transforms.ToTensor(),
@@ -397,12 +398,13 @@ def main():
     transforms.ToTensor(),
 	transforms.Lambda(lambda x: x.float())
   ])
+
   target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
   kwargs = dict(scene=seq, data_path=data_path, transform=transform,
                 steps=steps, skip=skip)
 
   dset = MF(dataset=dataset, train=True, target_transform=target_transform,
-            depth_transform=depth_transform, mode=mode, **kwargs)
+            depth_transform=depth_transform, dn_transform=depth_transform, mode=mode, **kwargs)
   print 'Loaded TUM sequence {:s}, length = {:d}'.format(seq, len(dset))
   
   data_loader = data.DataLoader(dset, batch_size=5, shuffle=True,
@@ -414,7 +416,7 @@ def main():
     # imgs: {'c': B x steps x 3 x H x W, 'd': B x steps x 1 x H x W}
     # poses: B x steps x 6 translation + log q
     print 'Minibatch {:d}'.format(batch_count)
-    color, depth = (imgs['c']+1)/2.0, (imgs['d']+1)/2.0
+    color, depth = (imgs['c']+1)/2.0, imgs['d']
     # color, depth = imgs['c'], imgs['d']
     targ = poses
     s = poses.size()
@@ -450,7 +452,11 @@ def main():
             K = torch.tensor([[468.60, 0, 318.27],
                                             [0, 468.61, 243.99],
                                             [0, 0, 1]]).float()
-
+    elif dataset == 'AICL_NUIM':
+        depth_scale = 5000
+        K = torch.tensor([[481.20, 0, 319.5],
+                                            [0, 480, 239.5],
+                                            [0, 0, 1]]).float()
     projected_imgs, valid_points = reconstruction(src_imgs, tgt_depths, targ_relative_poses, depth_scale=depth_scale, intrinsics=K)
     # print valid_points
     a = 1.0

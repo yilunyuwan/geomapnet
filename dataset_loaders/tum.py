@@ -19,7 +19,7 @@ from common.pose_utils import process_poses4tum
 
 class TUM(data.Dataset):
     def __init__(self, scene, data_path, train, 
-    transform=None, depth_transform=None, dn_transform=None,target_transform=None, mode=0, seed=7, real=False, skip_images=False, gt_path='associate_gt_fill.txt'):
+    transform=None, depth_transform=None, dn_transform=None,target_transform=None, mode=0, seed=7, real=False, skip_images=False, gt_path='associate_gt.txt', draw_seq=None):
       """
       :param scene: scene name ['fr1', 'fr2']
       :param data_path: root TUM data directory.
@@ -29,9 +29,10 @@ class TUM(data.Dataset):
       :param transform: transform to apply to the color images
       :param depth_transform: depth_transform to apply to the color images
       :param target_transform: transform to apply to the poses
-      :param mode: 0: just color image {'c': c_img}, 1: just depth image {'d': d_img}, 2: {'c': c_img, 'd': d_img}, 2 and dn_transform:  {'c': c_img, 'd': d_img, 'dn': depth used to be trained(standardization d_img)}
+      :param mode: 0: just color image {'c': c_img}, 1: just normalized depth image {'d': dn_img}, 2: {'c': c_img, 'dn': dn_img}, 3:  {'c': c_img, 'd': d_img, 'dn': normalized d_img(depth used to be trained)}
       :param real: If True, load poses from SLAM/integration of VO
       :param skip_images: If True, skip loading images and return None instead
+      :param draw_seq: only valid when run scripts/plot_dataset.py
       """
       self.mode = mode
       self.transform = transform
@@ -52,6 +53,10 @@ class TUM(data.Dataset):
         split_file = osp.join(base_dir, 'TestSplit.txt')
       with open(split_file, 'r') as f:
         seqs = [l.splitlines()[0] for l in f if not l.startswith('#')]
+
+      # only valid when run plot_dataset.py
+      if draw_seq is not None:
+        seqs = [draw_seq]
 
       # read poses and collect image names
       self.c_imgs = []
@@ -103,7 +108,7 @@ class TUM(data.Dataset):
             pose = self.poses[index]
             index += 1
           index -= 1
-        elif self.mode == 2:
+        else:
           c_img = None
           d_img = None
           while (c_img is None) or (d_img is None):
@@ -115,8 +120,6 @@ class TUM(data.Dataset):
             index += 1
           img = {'c': c_img, 'd': d_img}
           index -= 1
-        else:
-          raise Exception('Wrong mode {:d}'.format(self.mode))
 
       if self.target_transform is not None:
         pose = self.target_transform(pose)
@@ -147,11 +150,12 @@ def main():
   import torch
   import numpy as np
 
-  seq = 'desk'
-  mode = 2
+  dataset = 'AICL_NUIM'
+  seq = 'livingroom'
+  mode = 3
   num_workers = 0
-  data_dir = osp.join('..', 'data', 'TUM')
-  stats_file = osp.join(data_dir, seq, 'stats.txt')
+  data_dir = osp.join('..', 'data', dataset)
+  stats_file = osp.join(data_dir, seq, 'rgb_stats.txt')
   stats = np.loadtxt(stats_file)
   depth_stats = np.loadtxt( osp.join(data_dir, seq, 'depth_stats.txt') )
   print stats
@@ -165,17 +169,24 @@ def main():
     # transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1]))
     transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
   ])
-
+  depth_transform = transforms.Compose([
+    transforms.Resize(256),
+    # transforms.ToTensor() won't normalize int16 array to [0, 1]
+    transforms.ToTensor(),
+    # from [B, H, W] to [B, C, H, W] and normalization
+	  transforms.Lambda(lambda x: x.float()),
+  ])
+  dn_scalar = {'livingroom': 24924.0}
   dn_transform = transforms.Compose([
     transforms.Resize(256),
     # transforms.ToTensor() won't normalize int16 array to [0, 1]
     transforms.ToTensor(),
     # from [B, H, W] to [B, C, H, W] and normalization
-	  transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / 65535),
+	  transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / dn_scalar[seq]),
     transforms.Normalize(mean=depth_stats[0], std=np.sqrt(depth_stats[1]))
   ])
-  dset = TUM(seq, '../data/deepslam_data/TUM', train=False, transform=transform,
-    depth_transform=transform, mode=mode, dn_transform=dn_transform)
+  dset = TUM(seq, '../data/deepslam_data/'+dataset, train=False, transform=transform,
+    depth_transform=depth_transform, mode=mode, dn_transform=dn_transform)
   print 'Loaded TUM sequence {:s}, length = {:d}'.format(seq,
     len(dset))
 
@@ -190,11 +201,11 @@ def main():
       show_batch(make_grid(imgs['c'], nrow=1, padding=25))
     elif mode == 1:
       show_depth_batch(make_grid(imgs['d'], nrow=1, padding=25))
-    elif mode == 2:
+    elif mode == 3:
       color_show = (imgs['c'] + 1.0) / 2.0
       # color_show = imgs['c']
       lb = make_grid(color_show, nrow=1, padding=25)
-      rb = make_grid(imgs['d'].float()/65535.0, nrow=1, padding=25)
+      rb = make_grid(imgs['d'].float()/dn_scalar[seq], nrow=1, padding=25)
       print imgs['dn'].shape
       print torch.max(imgs['c']), torch.min(imgs['c']), torch.mean(imgs['c'])
       print imgs['c'].dtype

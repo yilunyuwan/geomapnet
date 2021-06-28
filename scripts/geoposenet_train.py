@@ -7,7 +7,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 Main training script for GeoMapNet
 """
 import set_paths
-from common.train import Trainer, load_state_dict_2stream
+from common.train import Trainer, load_state_dict_2stream, load_state_dict
 from common.optimizer import Optimizer
 from common.criterion import PoseNetCriterion, MapNetCriterion,\
   MapNetOnlineCriterion, GeoPoseNetCriterion, EvalCriterion
@@ -27,11 +27,10 @@ import random
 
 parser = argparse.ArgumentParser(description='Training script for PoseNet and'
                                              'MapNet variants')
-parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar',  'TUM'), help='Dataset')
-parser.add_argument('--scene', type=str, help='Scene name')
+parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar',  'TUM', 'AICL_NUIM'), help='Dataset', default='AICL_NUIM')
+parser.add_argument('--scene', type=str, help='Scene name', default='livingroom')
 parser.add_argument('--config_file', type=str, help='configuration file')
-parser.add_argument('--model', choices=('posenet', 'mapnet', 'mapnet++', 'geoposenet'),
-  help='Model to train')
+parser.add_argument('--model', choices=('posenet', 'mapnet', 'mapnet++', 'geoposenet'), help='Model to train', default='geoposenet')
 parser.add_argument('--device', type=str, default='0',
   help='value to be set to $CUDA_VISIBLE_DEVICES')
 parser.add_argument('--checkpoint', type=str, help='Checkpoint to resume from',
@@ -42,17 +41,16 @@ parser.add_argument('--learn_gamma', action='store_true',
   help='Learn the weight of relative pose loss')
 parser.add_argument('--learn_recon', action='store_true',
   help='Learn the weight of photometric loss and ssim loss')
-parser.add_argument('--two_stream_mode', type=int, default=0,
-  help='O: only RGB CNN, 1: only Depth CNN, 2: two stream fix two stream and train fc, 3:fine-tune all parameters')
+parser.add_argument('--two_stream_mode', type=int, default=0, choices=(0, 1, 2, 3), help='O: only RGB CNN, 1: only Depth CNN, 2: two stream fix two stream and train fc, 3:fine-tune all parameters')
 parser.add_argument('--resume_optim', action='store_true',
   help='Resume optimization (only effective if a checkpoint is given')
 parser.add_argument('--suffix', type=str, default='',
                     help='Experiment name suffix (as is)')
-parser.add_argument('--gt_path', type=str, default='associate_gt_fill.txt',
+parser.add_argument('--gt_path', type=str, default='associate_gt.txt',
                     help='Ground truth path')
 parser.add_argument('--rgb_cp', type=str, help='Checkpoint for rgb stream to resume from at the second stage', default=None)
 parser.add_argument('--depth_cp', type=str, help='Checkpoint for depth stream to resume from at the second stage', default=None)
-parser.add_argument('--2stream_cp', type=str, help='Checkpoint for two stream to resume from at the third stage', default=None)
+parser.add_argument('--rgbd_cp', type=str, help='Checkpoint for two stream to resume from at the third stage', default=None)
 args = parser.parse_args()
 
 settings = configparser.ConfigParser()
@@ -105,24 +103,32 @@ torch.backends.cudnn.deterministic = True
 # model
 # feature_extractor = models.resnet18(pretrained=True)
 if args.two_stream_mode < 2:
-  feature_extractor = models.resnet34(pretrained=True)
+  # feature_extractor = models.resnet34(pretrained=True)
+  feature_extractor = models.resnet18(pretrained=True)
   posenet = PoseNet_S1(feature_extractor, droprate=dropout, pretrained=True,
               filter_nans=(args.model=='mapnet++'), two_stream_mode=args.two_stream_mode)
-elif args.two_stream_mode == 2:
+else: # mode 2 and 3
   rgb_f_e = models.resnet34(pretrained=False)
   depth_f_e = models.resnet34(pretrained=False)
   posenet = PoseNet_S2(rgb_f_e=rgb_f_e, depth_f_e=depth_f_e, droprate=dropout, pretrained=True, filter_nans=(args.model=='mapnet++'), two_stream_mode=args.two_stream_mode)
-  if osp.isfile(args.rgb_cp) and osp.isfile(args.depth_cp):
-    loc_func = None if torch.cuda.is_available() else lambda storage, loc: storage
-    rgb_cp = torch.load(args.rgb_cp, map_location=loc_func)
-    depth_cp = torch.load(args.depth_cp, map_location=loc_func)
-    load_state_dict_2stream(posent, rgb_cp['model_state_dict'], depth_cp['model_state_dict'])
+  loc_func = None if torch.cuda.is_available() else lambda storage, loc: storage
+  # load weights from the first stage
+  if args.two_stream_mode == 2:
+    if osp.isfile(args.rgb_cp) and osp.isfile(args.depth_cp):
+      rgb_cp = torch.load(args.rgb_cp, map_location=loc_func)
+      depth_cp = torch.load(args.depth_cp, map_location=loc_func)
+      load_state_dict_2stream(posenet, rgb_cp['model_state_dict'], depth_cp['model_state_dict'])
+      print 'Loaded weights from {:s} and {:s}'.format(args.rgb_cp, args.depth_cp)
+    else:
+      raise Exception('rgb checkpoint path: {:s} and depth checkpoint path: {:s} must exist at the begining of stage 2'.format(args.rgb_cp, args.depth_cp))
+  # load weights from the second stage
   else:
-    raise Exception('rgb checkpoint path: {:s} and depth checkpoint path: {:s} must exist'.format(args.rgb_cp, args.depth_cp))
-  ###### todo: fix five residual blocks' parameters at the second stage
-elif args.two_stream_mode == 3:
-  ###### todo: the third stage
-  pass
+    if osp.isfile(args.rgbd_cp):
+      rgbd_cp = torch.load(args.rgbd_cp, map_location=loc_func)
+      load_state_dict(posenet, rgbd_cp['model_state_dict'])
+      print 'Loaded weights from {:s}'.format(args.rgbd_cp)
+    else:
+      raise Exception('rgbd checkpoint path: {:s} must exist at the begining of stage 3'.format(args.rgbd_cp))
 
 
 
@@ -141,13 +147,19 @@ if args.model == 'geoposenet':
   if args.dataset == 'TUM':
     if args.scene == 'fr1': # TUM dataset
       K = torch.tensor([[517.3, 0, 318.6],
-                                    [0, 516.5, 255.3],
-                                    [0, 0, 1]]).float()
+                        [0, 516.5, 255.3],
+                        [0, 0, 1]]).float()
     else: # CoRBS dataset
       K = torch.tensor([[468.60, 0, 318.27],
-                                      [0, 468.61, 243.99],
-                                      [0, 0, 1]]).float()
+                        [0, 468.61, 243.99],
+                        [0, 0, 1]]).float()
     kwargs = dict(kwargs, depth_scale=5000, K=K)
+  # ??????  not sure about K and depth scale of AICL_NUIM
+  elif args.dataset == 'AICL_NUIM':
+    K = torch.tensor([[481.20, 0, 319.5],
+                      [0, -480, 239.5],
+                      [0, 0, 1]]).float()
+    kwargs = dict(kwargs, depth_scale=1000, K=K)
   train_criterion = GeoPoseNetCriterion(**kwargs)
   # val_criterion = GeoPoseNetCriterion()
   val_criterion = EvalCriterion()
@@ -168,7 +180,10 @@ else:
   raise NotImplementedError
 
 # optimizer
-param_list = [{'params': model.parameters()}]
+# filter parameters which don't require gradient
+param_list = [{'params': filter(lambda p: p.requires_grad, model.parameters())}]
+# param_list = [{'params': model.parameters()}]
+
 # for poly decay learning rate adjustment policy
 # fc_ids = list(map(id, model.mapnet.feature_extractor.fc.parameters()))
 # fc_ids.extend(list(map(id, model.mapnet.fc_xyz.parameters())))
@@ -211,10 +226,16 @@ data_transform = transforms.Compose(tforms)
 resize = 256
 data_transform, depth_transform, dn_transform = None, None, None
 data_dir = osp.join('..', 'data', args.dataset)
-scene_dn_scalar = {'fr1': 15000.0, 'desk': 20000.0}
+scene_dn_scalar = {'fr1': 15000.0, 'desk': 20000.0, 'livingroom': 24924.0}
 
+"""
+No matter what two_stream_mode is, depth_transform is required for reconstruction loss using original depth image 
+two_stream_mode == 0 : only data_transform for rgb CNN
+two_stream_mode == 1 : only dn_transform for depth CNN
+two_stream_mode == 2 or 3: both data_transform for rgb and dn_transform for depth CNN
+"""
 if args.two_stream_mode != 1:
-  stats_file = osp.join(data_dir, args.scene, 'stats.txt')
+  stats_file = osp.join(data_dir, args.scene, 'rgb_stats.txt')
   stats = np.loadtxt(stats_file)
   print 'rgb statistics using ' + stats_file
   print 'mean: {:s}\nvariance:{:s}'.format(stats[0], stats[1])
@@ -240,7 +261,7 @@ if args.two_stream_mode != 0:
     depth_stats_fn = 'depth_cmap_stats.txt'
     dn_scalar = 221.0
   else:
-    depth_stats_fn = args.scene + '_depth_stats.txt'
+    depth_stats_fn = 'depth_stats.txt'
     dn_scalar = scene_dn_scalar[args.scene]
     # dn_scalar = 65535.0
   depth_stats = np.loadtxt( osp.join(data_dir, args.scene, depth_stats_fn) )
@@ -263,11 +284,14 @@ data_dir = osp.join('..', 'data', 'deepslam_data', args.dataset)
 kwargs = dict(scene=args.scene, data_path=data_dir, transform=data_transform,
               target_transform=target_transform, seed=seed)
 if args.model == 'geoposenet':
-  if args.dataset == '7Scenes' or args.dataset == 'TUM':
-    kwargs = dict(kwargs, dataset=args.dataset, skip=skip, steps=steps,
-    variable_skip=variable_skip, depth_transform=depth_transform, dn_transform=dn_transform, mode=args.two_stream_mode, gt_path=args.gt_path)
+  kwargs = dict(kwargs, dataset=args.dataset, skip=skip, steps=steps,
+    variable_skip=variable_skip, depth_transform=depth_transform, dn_transform=dn_transform, mode=args.two_stream_mode)
+  if args.dataset == '7Scenes':
     train_set = MF(train=True, **kwargs)
     val_set = MF(train=False, **kwargs)
+  elif rgs.dataset == 'TUM' or args.dataset == 'AICL_NUIM':
+    train_set = MF(train=True, gt_path=args.gt_path, **kwargs)
+    val_set = MF(train=False, gt_path=args.gt_path, **kwargs)
   else:
     raise NotImplementedError
 elif args.model == 'posenet':

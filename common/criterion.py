@@ -77,7 +77,7 @@ class EvalCriterion(nn.Module):
     pred_q = qexp_t(pred[:, 3:])
     targ_q = qexp_t(targ[:, 3:])
     t_SE_loss = torch.sum(torch.pow(torch.sub(pred[:, :3], targ[:, :3]),2), dim=1, keepdim=True)
-    t_RSE_loss = torch.sqrt(t_SE_loss).mean()
+    t_RSE_loss = torch.sqrt(t_SE_loss)
     q_loss = self.q_loss_fn(pred_q, targ_q)
     # print t_RSE_loss.size(), q_loss.size()
     return t_RSE_loss, q_loss
@@ -145,6 +145,7 @@ class GeoPoseNetCriterion(nn.Module):
 
 
     # get the VOs
+    
     pred_vos = pose_utils.calc_vos_simple(pred)
     targ_vos = pose_utils.calc_vos_simple(targ)
 
@@ -158,7 +159,11 @@ class GeoPoseNetCriterion(nn.Module):
     #           torch.exp(-self.srq) * vo_q_loss + self.srq
       
     vo_loss = 10 * (vo_t_loss + 3 * vo_q_loss)
-    
+    '''
+    vo_t_loss = torch.Tensor([0]).type_as(t_loss)
+    vo_q_loss = torch.Tensor([0]).type_as(t_loss)
+    vo_loss = torch.Tensor([0]).type_as(t_loss)
+    '''
     reconstruction_loss = torch.Tensor([0]).type_as(t_loss)
     '''
     # get the photometric reconstruction

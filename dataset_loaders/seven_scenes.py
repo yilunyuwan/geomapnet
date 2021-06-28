@@ -19,7 +19,7 @@ from common.pose_utils import process_poses
 
 class SevenScenes(data.Dataset):
     def __init__(self, scene, data_path, train, 
-    transform=None, depth_transform=None, target_transform=None, mode=0, seed=7, real=False,skip_images=False, vo_lib='orbslam', draw_seq=None):
+    transform=None, depth_transform=None, dn_transform=None, target_transform=None, mode=0, seed=7, real=False,skip_images=False, vo_lib='orbslam', draw_seq=None):
       """
       :param scene: scene name ['chess', 'pumpkin', ...]
       :param data_path: root 7scenes data directory.
@@ -37,6 +37,7 @@ class SevenScenes(data.Dataset):
       self.mode = mode
       self.transform = transform
       self.depth_transform = depth_transform
+      self.dn_transform = dn_transform
       self.target_transform = target_transform
       self.skip_images = skip_images
       np.random.seed(seed)
@@ -135,7 +136,7 @@ class SevenScenes(data.Dataset):
             pose = self.poses[index]
             index += 1
           index -= 1
-        elif self.mode == 2:
+        else:
           c_img = None
           d_img = None
           while (c_img is None) or (d_img is None):
@@ -147,8 +148,7 @@ class SevenScenes(data.Dataset):
             index += 1
           img = {'c': c_img, 'd': d_img}
           index -= 1
-        else:
-          raise Exception('Wrong mode {:d}'.format(self.mode))
+
 
       if self.target_transform is not None:
         pose = self.target_transform(pose)
@@ -156,14 +156,14 @@ class SevenScenes(data.Dataset):
       if self.skip_images:
         return img, pose
 
-      if self.transform is not None:
-        if self.mode == 2:
-          img = {'c': self.transform(img['c']), 'd': self.depth_transform(img['d'])}
-        elif self.mode == 1:
-          img = {'d': self.depth_transform(img['d'])}
-        else:
-          img = {'c': self.transform(img['c'])}
-
+      if self.mode >= 2 and self.transform is not None and self.depth_transform is not None and self.dn_transform is not None:
+        img = {'c': self.transform(img['c']), 'd': self.depth_transform(img['d']), 'dn': self.dn_transform(img['d'])}
+      elif self.mode == 1 and self.dn_transform is not None:
+        img = {'dn': self.dn_transform(img['d'])}
+      elif self.mode == 0 and self.transform is not None:
+        img = {'c': self.transform(img['c'])}
+      else:
+        raise Exception('Missing transform for mode {:d}'.format(self.mode))
       return img, pose
 
     def __len__(self):

@@ -4,8 +4,8 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
  
 import set_paths
-from models.posenet import PoseNet, MapNet
-from common.train import load_state_dict, step_feedfwd
+from models.posenet_stages import PoseNet_S1, PoseNet_S2, MapNet
+from common.train import load_state_dict, step_feedfwd, step_geopose
 from common.pose_utils import optimize_poses, quaternion_angular_error, qexp,\
   calc_vos_safe_fc, calc_vos_safe
 from dataset_loaders.composite import MF
@@ -25,15 +25,17 @@ import torch.cuda
 from torch.utils.data import DataLoader
 from torchvision import transforms, models
 import cPickle
+from common.optimizer import Optimizer
+import json
 
 # config
 parser = argparse.ArgumentParser(description='Evaluation script for PoseNet and'
                                              'MapNet variants')
-parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM'),
+parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM', 'AICL_NUIM'),
                     help='Dataset')
 parser.add_argument('--scene', type=str, help='Scene name')
 parser.add_argument('--weights', type=str, help='trained weights to load')
-parser.add_argument('--model', choices=('posenet', 'mapnet', 'mapnet++'),
+parser.add_argument('--model', choices=('geoposenet', 'posenet', 'mapnet', 'mapnet++'),
   help='Model to use (mapnet includes both MapNet and MapNet++ since their'
        'evluation process is the same and they only differ in the input weights'
        'file')
@@ -44,8 +46,10 @@ parser.add_argument('--output_dir', type=str, default=None,
   help='Output image directory')
 parser.add_argument('--pose_graph', action='store_true',
   help='Turn on Pose Graph Optimization')
-parser.add_argument('--two_stream', action='store_true',
-  help='Turn on Two Stream CNN')
+parser.add_argument('--two_stream_mode', type=int, default=0,
+  help='O: only RGB CNN, 1: only Depth CNN, 2: two stream fix two stream and train fc, 3:fine-tune all parameters')
+parser.add_argument('--gt_path', type=str, default='associate_gt.txt',
+                    help='Ground truth path')
 args = parser.parse_args()
 if 'CUDA_VISIBLE_DEVICES' not in os.environ:
   os.environ['CUDA_VISIBLE_DEVICES'] = args.device
@@ -56,7 +60,7 @@ with open(args.config_file, 'r') as f:
 seed = settings.getint('training', 'seed')
 section = settings['hyperparameters']
 dropout = section.getfloat('dropout')
-if (args.model.find('mapnet') >= 0) or args.pose_graph:
+if (args.model.find('mapnet') >= 0) or args.pose_graph or args.model.find('geoposenet') >= 0:
   steps = section.getint('steps')
   skip = section.getint('skip')
   real = section.getboolean('real')
@@ -68,15 +72,31 @@ if (args.model.find('mapnet') >= 0) or args.pose_graph:
     saq = section.getfloat('s_abs_rot', 1)
     srx = section.getfloat('s_rel_trans', 20)
     srq = section.getfloat('s_rel_rot', 20)
+section = settings['optimization']
+optim_config = {k: json.loads(v) for k,v in section.items() if k != 'opt'}
+opt_method = section['opt']
+lr = optim_config.pop('lr')
+weight_decay = optim_config.pop('weight_decay')
+
 
 # model
-feature_extractor = models.resnet34(pretrained=False)
-posenet = PoseNet(feature_extractor, droprate=dropout, pretrained=False, two_stream=args.two_stream)
-if (args.model.find('mapnet') >= 0) or args.pose_graph:
-  model = MapNet(mapnet=posenet, two_stream=args.two_stream)
+if args.two_stream_mode < 2:
+  # feature_extractor = models.resnet34(pretrained=False)
+  feature_extractor = models.resnet18(pretrained=False)
+  posenet = PoseNet_S1(feature_extractor, droprate=dropout, pretrained=False,
+              filter_nans=(args.model=='mapnet++'), two_stream_mode=args.two_stream_mode)
+# elif args.two_stream_mode == 2:
+else:
+  rgb_f_e = models.resnet34(pretrained=False)
+  depth_f_e = models.resnet34(pretrained=False)
+  posenet = PoseNet_S2(rgb_f_e=rgb_f_e, depth_f_e=depth_f_e, droprate=dropout, pretrained=False, filter_nans=(args.model=='mapnet++'), two_stream_mode=args.two_stream_mode)              
+if args.model == 'geoposenet':
+  model = MapNet(mapnet=posenet, two_stream_mode=args.two_stream_mode)
+elif (args.model.find('mapnet') >= 0) or args.pose_graph:
+  model = MapNet(mapnet=posenet, two_stream_mode=args.two_stream_mode)
 else: # geoposenet use posenet model when evaluation
   model = posenet
-model.eval()
+
 
 # loss functions
 t_criterion = lambda t_pred, t_gt: np.linalg.norm(t_pred - t_gt)
@@ -91,23 +111,41 @@ if osp.isfile(weights_filename):
   loc_func = lambda storage, loc: storage
   checkpoint = torch.load(weights_filename, map_location=loc_func)
   load_state_dict(model, checkpoint['model_state_dict'])
+  epoch = checkpoint['epoch']
   print 'Loaded weights from {:s}'.format(weights_filename)
 else:
   print 'Could not load weights from {:s}'.format(weights_filename)
   sys.exit(-1)
 
-data_dir = osp.join('..', 'data', args.dataset)
-stats_filename = osp.join(data_dir, args.scene, 'stats.txt')
-stats = np.loadtxt(stats_filename)
-depth_stats_filename = osp.join(data_dir, args.scene, 'depth_stats.txt')
-depth_stats = np.loadtxt(depth_stats_filename)
+test = True
+if test:
+  print 'model.eval()'
+  model.eval()
+else:
+  print 'model.train()'
+  model.train()
+
+
+  
 # transformer
-data_transform = transforms.Compose([
-  transforms.Resize(256),
-  transforms.ToTensor(),
-  # transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
-  # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-  transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1]))])
+data_transform, depth_transform, dn_transform = None, None, None
+data_dir = osp.join('..', 'data', args.dataset)
+scene_dn_scalar = {'fr1': 15000.0, 'desk': 20000.0, 'livingroom': 24924.0}
+
+if args.two_stream_mode != 1:
+  stats_file = osp.join(data_dir, args.scene, 'rgb_stats.txt')
+  stats = np.loadtxt(stats_file)
+  print 'rgb statistics using ' + stats_file
+  print 'mean: {:s}\nvariance:{:s}'.format(stats[0], stats[1])
+  data_transform = transforms.Compose([
+      transforms.Resize(256),
+      # transforms.CenterCrop(224),
+      transforms.ToTensor(),
+      transforms.Lambda(lambda x: x.float()),
+      # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+      transforms.Normalize(mean=stats[0], std=np.sqrt(stats[1]))
+    ])
+
 depth_transform = transforms.Compose([
     transforms.Resize(256),
     # transforms.ToTensor() won't normalize int16 array to [0, 1]
@@ -116,14 +154,26 @@ depth_transform = transforms.Compose([
 	  transforms.Lambda(lambda x: x.float())
   ])
 target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
-dn_transform = transforms.Compose([
-    transforms.Resize(256),
-    # transforms.ToTensor() won't normalize int16 array to [0, 1]
-    transforms.ToTensor(),
-    # from [B, 1, H, W] to [B, C, H, W] and normalization
-	  transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / 65535.0),
-    transforms.Normalize(mean=depth_stats[0], std=np.sqrt(depth_stats[1]))
-  ])
+if args.two_stream_mode != 0:
+  if args.gt_path == 'associate_gt_fill_cmap.txt':
+    depth_stats_fn = 'depth_cmap_stats.txt'
+    dn_scalar = 221.0
+  else:
+    depth_stats_fn = 'depth_stats.txt'
+    dn_scalar = scene_dn_scalar[args.scene]
+    # dn_scalar = 65535.0
+  depth_stats = np.loadtxt( osp.join(data_dir, args.scene, depth_stats_fn) )
+  print 'depth statistics using ' + depth_stats_fn
+  print 'dn_scalar:', dn_scalar
+  print 'mean: {:s}\nvariance:{:s}'.format(depth_stats[0], depth_stats[1])
+  dn_transform = transforms.Compose([
+      transforms.Resize(256),
+      # transforms.ToTensor() won't normalize int16 array to [0, 1]
+      transforms.ToTensor(),
+      # from [B, 1, H, W] to [B, C, H, W] and normalization
+      transforms.Lambda(lambda x: torch.cat((x, x, x), dim=0).float() / dn_scalar),
+      transforms.Normalize(mean=depth_stats[0], std=np.sqrt(depth_stats[1]))
+    ])
 
 # read mean and stdev for un-normalizing predictions
 pose_stats_file = osp.join(data_dir, args.scene, 'pose_stats.txt')
@@ -147,12 +197,16 @@ if (args.model.find('mapnet') >= 0) or args.pose_graph:
                 variable_skip=variable_skip, include_vos=args.pose_graph,
                 vo_func=vo_func, no_duplicates=False, **kwargs)
   L = len(data_set.dset)
-elif args.dataset == 'TUM':
+elif args.dataset == 'TUM' or args.dataset == 'AICL_NUIM':
+  kwargs = dict(kwargs, gt_path=args.gt_path)
   from dataset_loaders.tum import TUM
-  if args.two_stream:
-    data_set = TUM(mode=2, two_stream=True, depth_transform=depth_transform, dn_transform=dn_transform, **kwargs)
-  else:
-    data_set = TUM(**kwargs)
+  from dataset_loaders.composite import MF
+  data_set = TUM(mode=args.two_stream_mode,  depth_transform=depth_transform, dn_transform=dn_transform, **kwargs)
+  '''
+  kwargs = dict(kwargs, dataset=args.dataset, steps=steps, skip=skip, real=real, variable_skip=variable_skip)
+  data_set = MF(depth_transform=depth_transform, mode=2, two_stream=True, dn_transform=dn_transform, **kwargs)
+  '''
+
   L = len(data_set)
 elif args.dataset == '7Scenes':
   from dataset_loaders.seven_scenes import SevenScenes
@@ -166,8 +220,8 @@ else:
   raise NotImplementedError
  
 # loader (batch_size MUST be 1)
-batch_size = 1
-assert batch_size == 1
+batch_size = 32
+# assert batch_size == 1
 loader = DataLoader(data_set, batch_size=batch_size, shuffle=False,
                     num_workers=5, pin_memory=True)
 
@@ -177,24 +231,33 @@ torch.manual_seed(seed)
 if CUDA:
   torch.cuda.manual_seed(seed)
   model.cuda()
-
+'''
 pred_poses = np.zeros((L, 7))  # store all predicted poses
 targ_poses = np.zeros((L, 7))  # store all target poses
+'''
 
+pred_poses = np.empty((0, 7))  # store all predicted poses
+targ_poses = np.empty((0, 7))  # store all target poses
+
+from common.criterion import EvalCriterion
+from common import Logger
+val_criterion = EvalCriterion().cuda()
+val_loss = Logger.AverageMeter()
+t_loss = []
+q_loss = []
 # inference loop
 for batch_idx, (data, target) in enumerate(loader):
   if batch_idx % 200 == 0:
     print 'Image {:d} / {:d}'.format(batch_idx, len(loader))
 
-  # indices into the global arrays storing poses
-  if (args.model.find('vid') >= 0) or args.pose_graph:
-    idx = data_set.get_indices(batch_idx)
-  else:
-    idx = [batch_idx]
-  idx = idx[len(idx) / 2]
+  idx = batch_idx
 
   # output : 1 x 6 or 1 x STEPS x 6
-  _, output = step_feedfwd(data, model, CUDA, train=False, two_stream=args.two_stream)
+  _, output = step_feedfwd(data, model, CUDA, train=False, two_stream_mode=args.two_stream_mode)
+  '''
+  t_loss_batch, q_loss_batch, _ = step_geopose(data, model, CUDA, train=False, criterion=EvalCriterion(), target=target, two_stream=args.two_stream)
+  val_loss.update(t_loss_batch)
+  '''
   s = output.size()
   output = output.cpu().data.numpy().reshape((-1, s[-1]))
   target = target.numpy().reshape((-1, s[-1]))
@@ -204,27 +267,28 @@ for batch_idx, (data, target) in enumerate(loader):
   output = np.hstack((output[:, :3], np.asarray(q)))
   q = [qexp(p[3:]) for p in target]
   target = np.hstack((target[:, :3], np.asarray(q)))
-
-  if args.pose_graph:  # do pose graph optimization
-    kwargs = {'sax': sax, 'saq': saq, 'srx': srx, 'srq': srq}
-    # target includes both absolute poses and vos
-    vos = target[len(output):]
-    target = target[:len(output)]
-    output = optimize_poses(pred_poses=output, vos=vos, fc_vos=fc_vos, **kwargs)
-
-  # un-normalize the predicted and target translations
-  output[:, :3] = (output[:, :3] * pose_s) + pose_m
-  target[:, :3] = (target[:, :3] * pose_s) + pose_m
-
+  
   # take the middle prediction
+  '''
   pred_poses[idx, :] = output[len(output)/2]
   targ_poses[idx, :] = target[len(target)/2]
+  '''
+
+  pred_poses = np.append(pred_poses, output, axis=0)
+  targ_poses = np.append(targ_poses, target, axis=0)
+  
+  # q_loss.extend(q_loss_batch)
+  # t_loss.append(t_loss_batch)
+# print pred_poses.shape
+# print targ_poses.shape
 
 # calculate losses
+
 t_loss = np.asarray([t_criterion(p, t) for p, t in zip(pred_poses[:, :3],
                                                        targ_poses[:, :3])])
 q_loss = np.asarray([q_criterion(p, t) for p, t in zip(pred_poses[:, 3:],
                                                        targ_poses[:, 3:])])
+
 #eval_func = np.mean if args.dataset == 'RobotCar' else np.median
 #eval_str  = 'Mean' if args.dataset == 'RobotCar' else 'Median'
 #t_loss = eval_func(t_loss)
@@ -238,18 +302,19 @@ print 'Error in translation: median {:4.3f} m,  mean {:4.3f} m\n' \
 
 # create figure object
 fig = plt.figure()
-if args.dataset != '7Scenes' and args.dataset != 'TUM':
+if args.dataset != '7Scenes' and args.dataset != 'TUM' and args.dataset != 'AICL_NUIM':
   ax = fig.add_subplot(111)
 else:
   ax = fig.add_subplot(111, projection='3d')
 plt.subplots_adjust(left=0, bottom=0, right=1, top=1)
 
 # plot on the figure object
-ss = max(1, int(len(data_set) / 1000))  # 100 for stairs
+# ss = max(1, int(len(data_set) / 1000))  # 100 for stairs
+ss = 1
 # scatter the points and draw connecting line
 x = np.vstack((pred_poses[::ss, 0].T, targ_poses[::ss, 0].T))
 y = np.vstack((pred_poses[::ss, 1].T, targ_poses[::ss, 1].T))
-if args.dataset != '7Scenes' and args.dataset != 'TUM':  # 2D drawing
+if args.dataset != '7Scenes' and args.dataset != 'TUM' and args.dataset != 'AICL_NUIM':  # 2D drawing
   ax.plot(x, y, c='b')
   ax.scatter(x[0, :], y[0, :], c='r')
   ax.scatter(x[1, :], y[1, :], c='g')
@@ -280,14 +345,14 @@ if args.output_dir is not None:
   if args.pose_graph:
     model_name += '_pgo_{:s}'.format(vo_lib)
   experiment_name = '{:s}_{:s}_{:s}'.format(args.dataset, args.scene, model_name)
-  if args.two_stream:
-    experiment_name += '_2stream'
+  if args.two_stream_mode >= 2:
+    experiment_name += '_stage{:d}'.format(args.two_stream_mode)
   image_filename = osp.join(osp.expanduser(args.output_dir),
-    '{:s}.png'.format(experiment_name))
+    '{:s}_{:d}.png'.format(experiment_name, epoch))
   fig.savefig(image_filename)
   print '{:s} saved'.format(image_filename)
-  result_filename = osp.join(osp.expanduser(args.output_dir), '{:s}.pkl'.
-    format(experiment_name))
+  result_filename = osp.join(osp.expanduser(args.output_dir), '{:s}_{:d}.pkl'.
+    format(experiment_name, epoch))
   with open(result_filename, 'wb') as f:
     cPickle.dump({'targ_poses': targ_poses, 'pred_poses': pred_poses}, f)
   print '{:s} written'.format(result_filename)

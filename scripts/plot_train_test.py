@@ -29,7 +29,7 @@ import cPickle
 # config
 parser = argparse.ArgumentParser(description='Evaluation script for PoseNet and'
                                              'MapNet variants')
-parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM'),
+parser.add_argument('--dataset', type=str, choices=('7Scenes', 'RobotCar', 'TUM', 'AICL_NUIM'),
                     help='Dataset')
 parser.add_argument('--scene', type=str, help='Scene name')
 parser.add_argument('--weights', type=str, help='trained weights to load')
@@ -93,7 +93,7 @@ seed = 7
 #   sys.exit(-1)
 
 data_dir = osp.join('..', 'data', args.dataset)
-stats_filename = osp.join(data_dir, args.scene, 'stats.txt')
+stats_filename = osp.join(data_dir, args.scene, 'rgb_stats.txt')
 stats = np.loadtxt(stats_filename)
 # transformer
 data_transform = transforms.Compose([
@@ -109,11 +109,15 @@ target_transform = transforms.Lambda(lambda x: torch.from_numpy(x).float())
 # dataset
 data_dir = osp.join('..', 'data', 'deepslam_data', args.dataset)
 train_kwargs = dict(scene=args.scene, data_path=data_dir, train=True,
-  transform=data_transform, target_transform=target_transform, seed=seed)
+  transform=data_transform, target_transform=target_transform, seed=seed, gt_path='associate_gt.txt')
 test_kwargs = dict(scene=args.scene, data_path=data_dir, train=False,
-  transform=data_transform, target_transform=target_transform, seed=seed)
+  transform=data_transform, target_transform=target_transform, seed=seed, gt_path='associate_gt.txt')
 
 if args.dataset == 'TUM':
+  from dataset_loaders.tum import TUM
+  train_data_set = TUM(**train_kwargs)
+  test_data_set = TUM(**test_kwargs)
+elif args.dataset == 'AICL_NUIM':
   from dataset_loaders.tum import TUM
   train_data_set = TUM(**train_kwargs)
   test_data_set = TUM(**test_kwargs)
@@ -140,7 +144,7 @@ for data_set in data_sets:
 
 # create figure object
 fig = plt.figure()
-if args.dataset != '7Scenes' and args.dataset != 'TUM':
+if args.dataset != '7Scenes' and args.dataset != 'TUM' and args.dataset != 'AICL_NUIM':
   ax = fig.add_subplot(111)
 else:
   ax = fig.add_subplot(111, projection='3d')

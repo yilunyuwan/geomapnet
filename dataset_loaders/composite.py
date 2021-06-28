@@ -41,7 +41,7 @@ class MF(data.Dataset):
     self.no_duplicates = no_duplicates
     self.mode = mode
 
-    if dataset == 'TUM':
+    if dataset == 'TUM' or dataset == 'AICL_NUIM':
       from tum import TUM
       self.dset = TUM(*args, mode=self.mode, dn_transform=dn_transform, **kwargs)
       # self.dset = TUM(*args, mode=self.mode, **kwargs)

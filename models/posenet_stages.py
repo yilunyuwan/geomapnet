@@ -85,19 +85,23 @@ class PoseNet_S1(nn.Module):
       # RGB feature extractor
       x = self.rgb_feature_extractor(data)
       x = F.relu(x)
+      if self.droprate > 0:
+        x = self.dropout(x)
       xyz  = self.rgb_fc_xyz(x)
       log_q = self.rgb_fc_wpqr(x)
     else:
       # Depth feature extractor
       x = self.depth_feature_extractor(data)
       x = F.relu(x)
+      if self.droprate > 0:
+        x = self.dropout(x)
       xyz  = self.depth_fc_xyz(x)
       log_q = self.depth_fc_wpqr(x)
     return torch.cat((xyz, log_q), dim=1)
 
 class PoseNet_S2(nn.Module):
   def __init__(self, rgb_f_e, depth_f_e, droprate=0.5, pretrained=True,
-      feat_dim=2048, filter_nans=False):
+      feat_dim=2048, filter_nans=False, two_stream_mode=2):
     super(PoseNet_S2, self).__init__()
     self.droprate = droprate
     self.dropout = nn.Dropout(p=self.droprate)
@@ -118,6 +122,10 @@ class PoseNet_S2(nn.Module):
     self.fc_xyz  = nn.Linear(feat_dim, 3)
     self.fc_wpqr = nn.Linear(feat_dim, 3)
     '''
+    if two_stream_mode == 2:
+      for p in self.parameters():
+        p.requires_grad = False
+
     self.fc_xyz  = nn.Linear(2*feat_dim, 3)
     self.fc_wpqr = nn.Linear(2*feat_dim, 3)
 

@@ -272,76 +272,39 @@ class Trainer(object):
     """
     for epoch in xrange(self.start_epoch, self.config['n_epochs']):
       # VALIDATION
-      if epoch >0 and self.config['do_val'] and ((epoch % self.config['val_freq'] == 0) or
-                                      (epoch == self.config['n_epochs']-1)) :
+      if epoch >0 and self.config['do_val'] and ((epoch % self.config['val_freq'] == 0) or (epoch == self.config['n_epochs']-1)) :
         print 'Validation'
         val_batch_time = Logger.AverageMeter()
-        # val_loss = Logger.AverageMeter()
         self.model.eval()
         end = time.time()
         val_data_time = Logger.AverageMeter()
         t_loss_all = []
         q_loss_all = []
-        output_all = []
-        for batch_idx, (data, target) in enumerate(self.val_loader):
-          if batch_idx % self.config['print_freq'] == 0:
-            print 'Batch {:d} / {:d}'.format(batch_idx, len(self.val_loader))
+        for val_batch_idx, (val_data, val_target) in enumerate(self.val_loader):
+          
+          if val_batch_idx % self.config['print_freq'] == 0:
+            print 'Batch {:d} / {:d}'.format(val_batch_idx, len(self.train_loader))
 
           val_data_time.update(time.time() - end)
 
-          kwargs = dict(target=target, criterion=self.val_criterion,
+          kwargs = dict(target=val_target, criterion=self.val_criterion,
             optim=self.optimizer, train=False)
+          
           if geopose:
-            t_loss, q_loss, output = step_geopose(data, self.model, self.config['cuda'], two_stream_mode=self.two_stream_mode, **kwargs)
+            t_loss, q_loss, output = step_geopose(val_data, self.model, self.config['cuda'], two_stream_mode=self.two_stream_mode, **kwargs)
             # val_loss.update(t_loss)
           else:
             raise NotImplementedError
-          # elif lstm:
-          #   loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
-          # else:
-          #   loss, _ = step_feedfwd(data, self.model, self.config['cuda'],two_stream=self.two_stream,
-          #     **kwargs)
           '''
-          val_loss.update(loss)
-          val_batch_time.update(time.time() - end)
-
-          if batch_idx % self.config['print_freq'] == 0:
-            if geopose:
-              print 'Val {:s}: Epoch {:d}\t' \
-                    'Batch {:d}/{:d}\t' \
-                    'Data Time {:.4f} ({:.4f})\t' \
-                    'Batch Time {:.4f} ({:.4f})\t' \
-                    'Total Loss {:f}\t' \
-                    'T Loss {:f}\t' \
-                    'Q Loss {:f}\t' \
-                    'VO T Loss {:f}\t' \
-                    'VO Q Loss {:f}\t' \
-                    'Reconstruction Loss {:f}\t' \
-                    'SSIM Loss {:f}\t' \
-                    'sax {:f}\t' \
-                    'saq {:f}' \
-                .format(self.experiment, epoch, batch_idx, len(self.train_loader)-1,
-                train_data_time.val, train_data_time.avg, train_batch_time.val,
-                train_batch_time.avg, loss, t_loss, q_loss, vo_t_loss, vo_q_loss, reconstruction_loss, ssim_loss, self.train_criterion.sax.item(), self.train_criterion.saq.item())
-            else:
-              print 'Val {:s}: Epoch {:d}\t' \
-                    'Batch {:d}/{:d}\t' \
-                    'Data time {:.4f} ({:.4f})\t' \
-                    'Batch time {:.4f} ({:.4f})\t' \
-                    'Loss {:f}' \
-                .format(self.experiment, epoch, batch_idx, len(self.val_loader)-1,
-                val_data_time.val, val_data_time.avg, val_batch_time.val,
-                val_batch_time.avg, loss)
-            if self.config['log_visdom']:
-              self.vis.save(envs=[self.vis_env])
-          end = time.time()
+          elif lstm:
+            loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
+          else:
+            loss, _ = step_feedfwd(data, self.model, self.config['cuda'],two_stream=self.two_stream,
+              **kwargs)
           '''
-          # print len(t_loss), q_loss[0]
-          # t_loss_all.extend(t_loss)
+          t_loss_all.extend(t_loss)
           q_loss_all.extend(q_loss)
-          t_loss_all.append(t_loss)
-          output_all.extend(output)
-          # q_loss_all.append(q_loss)
+          
 
         print 'Val {:s}: Epoch {:d}\n' \
         'Error in translation: median {:4.3f} m,  mean {:4.3f} m\n' \
@@ -378,7 +341,6 @@ class Trainer(object):
       end = time.time()
       for batch_idx, (data, target) in enumerate(self.train_loader):
         train_data_time.update(time.time() - end)
-
         kwargs = dict(target=target, criterion=self.train_criterion,
           optim=self.optimizer, train=True,
           max_grad_norm=self.config['max_grad_norm'])
@@ -389,7 +351,7 @@ class Trainer(object):
         elif lstm:
           loss, _ = step_lstm(data['c'], self.model, self.config['cuda'], **kwargs)
         else:
-          loss, abs_t_loss, abs_q_loss, vo_t_loss, vo_q_loss = step_feedfwd(data, self.model, self.config['cuda'], two_stream=self.two_stream,
+          loss, abs_t_loss, abs_q_loss, vo_t_loss, vo_q_loss = step_feedfwd(data, self.model, self.config['cuda'], two_stream_mode=self.two_stream_mode,
             **kwargs)
 
         train_batch_time.update(time.time() - end)
@@ -521,7 +483,7 @@ def step_geopose(data, model, cuda, target=None, criterion=None, optim=None,
         # evaluation criterion
         t_loss, q_loss = criterion(output, target_var)
         # return t_loss.tolist(), q_loss.tolist()
-        return t_loss, q_loss, output
+      return t_loss, q_loss, output
 
     with torch.set_grad_enabled(train):
       if two_stream_mode >= 2:
@@ -556,15 +518,19 @@ def step_feedfwd(data, model, cuda, target=None, criterion=None, optim=None,
   """
   if train:
     assert criterion is not None
-
-  data_var = Variable(data['c'], requires_grad=train)
+  if two_stream_mode == 0:
+    data_var = Variable(data['c'], requires_grad=False)
+  elif two_stream_mode == 1:
+    data_var = Variable(data['dn'], requires_grad=False)
+  else:
+    data_var = Variable(data['c'], requires_grad=False)
+    dn_var = Variable(data['dn'], requires_grad=False)
+    if cuda:
+      dn_var = dn_var.cuda(async=True)
   if cuda:
     data_var = data_var.cuda(async=True)
   with torch.set_grad_enabled(train):
     if two_stream_mode >= 2:
-      dn_var = Variable(data['dn'], requires_grad=False)
-      if cuda:
-        dn_var = dn_var.cuda(async=True)
       output = model(data_var, dn_var)
     else:
       output = model(data_var)
